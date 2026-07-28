@@ -84,6 +84,7 @@ These are the constraints a human reviewer will check first; each is a configura
 | Maximum drop length | 50–150 m (aerial/buried) | Hard constraint premises → terminal |
 | Optical budget | ~28 dB (GPON B+), ~29 dB (XGS-PON N1) | **Distance proxy in v1**: max route-meters CO → premises per class. Full dB loss model (per-km, per-splice, per-connector, per-split losses) is a v2 upgrade behind the same constraint interface |
 | Homes passed vs connected | Design passes 100% of premises; connects per take rate | Decided v1 default: splitters, feeder fibers, and OLT ports sized against the configured take rate; civil works, distribution, and terminals always sized for 100% so every premises is connectable without new civil work |
+| Utilization floor | 95% of installed ports/capacity | Enforced as QA errors per component family (terminals, splitters, FDH cabinets, OLT cards); graduated catalog sizes make the floor reachable |
 | Routing rights | Follow roads / rights-of-way only | Hard constraint: routing is on the road/ROW graph, never cross-parcel, except explicit easements provided as input |
 | Crossing & surface preferences | Road crossings, rail/water crossings, surface types | Soft constraints via edge cost multipliers in the cost model |
 | Existing infrastructure reuse | Ducts, poles, spare fiber | Modeled as low-cost edges/resources with capacity |
@@ -245,6 +246,7 @@ max_drop_length_m: 150                 # premise to distribution plant
 max_route_length_m: 20000              # OLT to premise, optical budget proxy
 take_rate: 0.65                        # fraction of HHP provisioned day-one
 spare_fibers_pct: 0.10
+utilization_floor: 0.95              # min used/installed per component family, QA-enforced
 redundancy:
   feeder_ring: false                   # reserved, post-v1 — v1 feeder routing is always a tree
 cost_weights:
@@ -376,13 +378,13 @@ The pipeline above is implemented end to end in this repository (see [System arc
 | Snapping | Nearest graph node — the M1 upgrade is edge-splitting drop candidates; node snapping only over-estimates drop lengths, never under |
 | Clustering | Farthest-point seeding on graph distance, then greedy capacity-respecting assignment; capacity overflow spills and is reported by QA rather than hidden |
 | FDH placement | Medoid (unit-weighted 1-median) over each serving area's snap nodes |
-| Terminal placement | Premises grouped onto 12-port access terminals at their snap node; every drop anchored to a terminal |
+| Terminal packing | Premises ordered by DFS position on the distribution tree, cut into full 12-port batches sited at the node minimizing worst drop (shrinking only when the max-drop rule forces it); a merge/shrink repair pass dissolves stragglers; tails close onto 4/8/12-port catalog sizes |
 | Distribution routing | Takahashi–Matsuyama Steiner approximation growing a tree from the FDH; per-edge fiber accounting by tree walk, sized for 100% of units |
-| Splitters & CO | Take-rate provisioning at the configured ratio; CO sited at the splitter-weighted 1-median of FDH sites; OLT chassis count derived |
+| Splitters & CO | Take-rate provisioning as full 1:32s plus the smallest covering remainder splitter (1:4/8/16); FDH cabinets sized 144/288/432 per area; CO sited at the splitter-weighted 1-median of FDH sites; OLT line cards (8/16-port) derived |
 | Feeder routing | Sequential nearest-first Dijkstra priced in cents with open-trench discounting — duct/trench sharing falls out of the objective, no special-case logic |
-| Cable sizing, BOM, QA | Spare-percent uplift, smallest-covering catalog cable with stacking above 288f, BOM with extended costs, seven-check QA gate wired to the process exit code |
+| Cable sizing, BOM, QA | Spare-percent uplift, smallest-covering catalog cable with stacking above 288f, BOM with extended costs, eleven-check QA gate — service rules plus a 95% utilization floor per component family — wired to the process exit code |
 
-Measured on the shipped fixture (433 premises, 456 units, 100-node grid town): the full pipeline runs in about 5 ms and its output is byte-identical on every run and platform. The local-search refinement passes named in the algorithms table (swap/relocate clustering moves, key-path routing improvement) are M2 scope — what v0 establishes is the end-to-end harness they drop into.
+Measured on the shipped fixture (9,190 premises / 9,919 households on a 900-node grid town): the full pipeline runs in about half a second, output byte-identical on every run and platform, with component utilization of 96.2% (terminal ports), 97.6% (splitter ports), 99.8% (FDH capacity), and 99.5% (OLT card ports) against the 95% floor. The local-search refinement passes named in the algorithms table (swap/relocate clustering moves, key-path routing improvement) are M2 scope — what v0 establishes is the end-to-end harness they drop into.
 
 ## System architecture
 
@@ -573,13 +575,13 @@ QA runs automatically at the end of every design and is also available standalon
 | `DROP_LENGTH` — drop exceeds the max-drop-length design rule | error |
 | `REF_INTEGRITY` — connectivity row references a missing feature, or vice versa | error |
 | `ORPHANED_EQUIPMENT` — structure or cable on no premises path | warning |
-| `LOW_UTILIZATION` — splitter/cabinet utilization below configured floor | warning |
+| `LOW_UTILIZATION` — used/installed below the utilization floor for any component family (terminal ports, splitter ports, FDH capacity, OLT card ports) | error |
 
 Output is `qa_report.json`: per-check status, failing feature IDs (so failures can be selected directly in GIS), counts, and an overall verdict — `pass` (no errors; warnings allowed) or `fail`. The CLI exits non-zero on `fail`, making QA usable as a CI gate. A design run that fails QA still writes all artifacts; the verdict is stamped into `netwerk_meta` and the summary report.
 
 ### Worked example (shipped)
 
-The repo ships `gen_fixture`, a seeded synthetic town: ~430 premises on a 10×10 street grid with two asphalt arterials and a handful of MDUs near the center, byte-identical on every run. `./build/gen_fixture | ./build/netwerk` executes the full pipeline in milliseconds and prints the complete v0 design package — serving areas with FDH sites, splitter counts, and feeder lengths; the sized BOM with unit and extended costs; the capex rollup (total, per unit passed, trench-sharing ratio); and the QA report whose verdict drives the exit code. CI diffs this output byte-for-byte against `tests/golden_report.txt`. The OSM-derived town with full GIS outputs described above is the M1–M3 target of this same harness.
+The repo ships `gen_fixture`, a seeded synthetic town at 10k-household scale: 9,190 premises (9,919 households) on a 30×30 street grid with asphalt arterials and an MDU district near the center, byte-identical on every run. `./build/gen_fixture | ./build/netwerk` executes the full pipeline in milliseconds and prints the complete v0 design package — serving areas with FDH sites, splitter counts, and feeder lengths; the sized BOM with unit and extended costs; the capex rollup (total, per unit passed, trench-sharing ratio); and the QA report whose verdict drives the exit code. CI diffs this output byte-for-byte against `tests/golden_report.txt`. The OSM-derived town with full GIS outputs described above is the M1–M3 target of this same harness.
 
 ## Roadmap
 

@@ -25,17 +25,29 @@ tar xzf carbon_toolchain-0.0.0-0.nightly.2026.07.27.tar.gz
 ./build/gen_fixture | ./build/netwerk
 ```
 
-`gen_fixture` prints a seeded synthetic town (~430 premises, grid streets,
-a few MDUs) in the `NETWERK 1` text interchange format; `netwerk` ingests it,
-runs every design stage, and prints the design, BOM, cost rollup, and QA
-report. Output is byte-identical on every run and platform — the engine is
-pure integer arithmetic (meters and cents).
+`gen_fixture` prints a seeded synthetic town at 10k-household scale (9,190
+premises, 9,919 households, grid streets, an MDU district) in the `NETWERK 1`
+text interchange format; `netwerk` ingests it, runs every design stage, and
+prints the design, BOM, cost rollup, and QA report — in about half a second.
+Output is byte-identical on every run and platform — the engine is pure
+integer arithmetic (meters and cents).
+
+The design minimizes installed equipment against a 95% utilization floor,
+enforced as QA errors: graduated catalog sizes (splitters 1:4–1:32,
+terminals 4/8/12 ports, FDH cabinets 144–432, OLT cards 8/16 ports) let
+every remainder round into the smallest covering unit, and terminals are
+batch-packed along the distribution tree.
 
 ```
+utilization:
+  terminal_ports: 9190/9548 = 96.2%
+  splitter_ports: 6452/6608 = 97.6%
+  fdh_capacity: 9919/9936 = 99.8%
+  olt_card_ports: 207/208 = 99.5%
 cost:
-  total_capex=$679433.50
-  per_unit_passed=$1489.98
-  trench_m=10890 cable_route_m=11770 sharing_x100=108
+  total_capex=$9662979.50
+  per_unit_passed=$974.18
+  trench_m=130700 cable_route_m=148000 sharing_x100=113
 qa verdict: PASS
 ```
 
