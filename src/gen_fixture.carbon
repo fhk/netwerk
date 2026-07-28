@@ -1,10 +1,11 @@
 // netwerk — deterministic synthetic-town fixture generator.
 //
-// Emits the netwerk interchange text format on stdout: a grid road network
-// with two asphalt arterials, plus premises parcels along every street —
-// mostly single-family units with a few MDUs near the town center. The
-// generator is seeded and pure-integer, so the fixture is byte-identical on
-// every run: this file doubles as the golden-test input (SCOPE.md M1).
+// Emits the netwerk interchange text format on stdout: a 30x30 grid road
+// network with asphalt arterials, plus premises parcels along every street
+// — mostly single-family units with an MDU district near the town center.
+// Scale target: ~10,000 households (units). The generator is seeded and
+// pure-integer, so the fixture is byte-identical on every run: this file
+// doubles as the golden-test input (SCOPE.md M0).
 //
 // Format (whitespace/comma separated):
 //   NETWERK 1
@@ -27,18 +28,24 @@ fn Rand(n: i32) -> i32 {
   return (lcg_state % (n as i64)) as i32;
 }
 
-// Grid dimensions and spacing (meters).
-fn GridW() -> i32 { return 10; }
-fn GridH() -> i32 { return 10; }
-fn Spacing() -> i32 { return 110; }
+// Grid dimensions and spacing (meters). 30x30 nodes = 900 nodes, 1740
+// street edges; ~5.3 built lots per block side at 88% occupancy lands the
+// town at roughly 10k households with the MDU district included.
+fn GridW() -> i32 { return 30; }
+fn GridH() -> i32 { return 30; }
+fn Spacing() -> i32 { return 100; }
 
 fn NodeId(col: i32, row: i32) -> i32 {
   return row * GridW() + col;
 }
 
-// The two arterial streets (asphalt): the central row and column.
-fn IsArterialH(row: i32) -> bool { return row == 5; }
-fn IsArterialV(col: i32) -> bool { return col == 5; }
+// Arterial streets (asphalt): rows and columns 10 and 20.
+fn IsArterial(idx: i32) -> bool { return idx == 10 or idx == 20; }
+
+// The MDU district: blocks bounded by nodes 11..19 in both axes.
+fn InMduZone(a: i32, b: i32) -> bool {
+  return a >= 11 and a <= 19 and b >= 11 and b <= 19;
+}
 
 fn PrintRow3(a: i32, b: i32, c: i32) {
   PrintInt(a);
@@ -58,6 +65,44 @@ fn PrintRow4(a: i32, b: i32, c: i32, dd: i32) {
   Core.PrintStr(" ");
   PrintInt(dd);
   NL();
+}
+
+// Emits (or counts) the premises along one street edge running from
+// (x0,y0) horizontally or vertically. Three lots per side, 88% built.
+fn EdgePremises(pid_in: i32, x0: i32, y0: i32, horizontal: bool,
+                mdu_zone: bool, emit: bool) -> i32 {
+  var pid: i32 = pid_in;
+  var lot: i32 = 0;
+  while (lot < 3) {
+    var side: i32 = 0;
+    while (side < 2) {
+      if (Rand(100) < 88) {
+        let along: i32 = 25 + lot * 25 + Rand(11);
+        var off: i32 = -16;
+        if (side == 1) {
+          off = 16;
+        }
+        var x: i32 = x0 + along;
+        var y: i32 = y0 + off;
+        if (not horizontal) {
+          x = x0 + off;
+          y = y0 + along;
+        }
+        // Mostly single-family; MDUs cluster in the town-center district.
+        var units: i32 = 1;
+        if (mdu_zone and Rand(100) < 12) {
+          units = 4 + Rand(13);  // 4..16-unit MDU
+        }
+        if (emit) {
+          PrintRow4(pid, x, y, units);
+        }
+        ++pid;
+      }
+      ++side;
+    }
+    ++lot;
+  }
+  return pid;
 }
 
 fn Run() {
@@ -89,7 +134,7 @@ fn Run() {
     var col: i32 = 0;
     while (col < GridW() - 1) {
       var surface: i32 = SurfaceSoft();
-      if (IsArterialH(row)) {
+      if (IsArterial(row)) {
         surface = SurfaceAsphalt();
       }
       PrintRow4(eid, NodeId(col, row), NodeId(col + 1, row), surface);
@@ -103,7 +148,7 @@ fn Run() {
     var row2: i32 = 0;
     while (row2 < GridH() - 1) {
       var surface: i32 = SurfaceSoft();
-      if (IsArterialV(col2)) {
+      if (IsArterial(col2)) {
         surface = SurfaceAsphalt();
       }
       PrintRow4(eid, NodeId(col2, row2), NodeId(col2, row2 + 1), surface);
@@ -113,7 +158,7 @@ fn Run() {
     ++col2;
   }
 
-  // --- premises: parcels along each horizontal street, both sides ---
+  // --- premises along every street edge, both sides ---
   // Two passes over the same PRNG sequence: first to count, then to emit,
   // so the header count matches without buffering. Reset the seed between
   // passes to replay the identical sequence.
@@ -126,42 +171,27 @@ fn Run() {
       PrintInt(total);
       NL();
     }
+    let emit: bool = pass == 1;
     var pid: i32 = 0;
     row = 0;
     while (row < GridH()) {
       var c: i32 = 0;
       while (c < GridW() - 1) {
-        // Three lots along the block, two sides of the street.
-        var lot: i32 = 0;
-        while (lot < 3) {
-          var side: i32 = 0;
-          while (side < 2) {
-            // 82% of lots are built.
-            if (Rand(100) < 82) {
-              let x: i32 = c * Spacing() + 25 + lot * 30 + Rand(11);
-              var y: i32 = row * Spacing() - 18;
-              if (side == 1) {
-                y = row * Spacing() + 18;
-              }
-              // Mostly single-family; MDUs cluster near the arterials.
-              var units: i32 = 1;
-              let near_center: bool =
-                  (row >= 4 and row <= 6) and (c >= 3 and c <= 6);
-              if (near_center and Rand(100) < 12) {
-                units = 4 + Rand(13);  // 4..16-unit MDU
-              }
-              if (pass == 1) {
-                PrintRow4(pid, x, y, units);
-              }
-              ++pid;
-            }
-            ++side;
-          }
-          ++lot;
-        }
+        pid = EdgePremises(pid, c * Spacing(), row * Spacing(), true,
+                           InMduZone(c, row), emit);
         ++c;
       }
       ++row;
+    }
+    var c2: i32 = 0;
+    while (c2 < GridW()) {
+      var r2: i32 = 0;
+      while (r2 < GridH() - 1) {
+        pid = EdgePremises(pid, c2 * Spacing(), r2 * Spacing(), false,
+                           InMduZone(c2, r2), emit);
+        ++r2;
+      }
+      ++c2;
     }
     total = pid;
     ++pass;

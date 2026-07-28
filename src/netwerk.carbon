@@ -34,8 +34,8 @@ fn Run() -> i32 {
   SnapPremises(ref d);
   Cluster(ref d);
   PlaceFdh(ref d);
-  PlaceTerminals(ref d);
-  RouteDistribution(ref d);
+  RouteDistribution(ref d);  // packs terminals per serving area as it goes
+  MergeTerminals(ref d);     // utilization repair: dissolve/shrink terminals
   ProvisionSplitters(ref d);
   SelectCo(ref d);
   RouteFeeder(ref d);

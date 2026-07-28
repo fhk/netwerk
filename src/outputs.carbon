@@ -1,7 +1,9 @@
 // netwerk — pipeline stages 8–10: cable sizing, costing/BOM, QA, report.
 //
 // SCOPE.md: quantities are exact from the design, not factored estimates;
-// QA gates the run with an explicit pass/fail verdict and the CLI exit code.
+// QA gates the run with an explicit pass/fail verdict and the CLI exit
+// code. The utilization floor (rules) is enforced here as a QA error:
+// stranded port capacity fails the design.
 
 library "outputs";
 
@@ -35,6 +37,142 @@ fn AddCablesForDemand(demand_in: i32, len: i32, ref count_by_size: array(i32, 6)
 }
 
 // ---------------------------------------------------------------------------
+// Equipment totals shared by the report and QA
+// ---------------------------------------------------------------------------
+
+fn TotalSplitters(ref d: Design) -> i32 {
+  var total: i32 = 0;
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    total += d.fdh_splitters[c];
+    ++c;
+  }
+  return total;
+}
+
+fn SplitterPortsInstalled(ref d: Design) -> i32 {
+  var ports: i32 = 0;
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    var i: i32 = 0;
+    while (i < SplitterSizeCount()) {
+      ports += d.fdh_split_by_size[c * 4 + i] * SplitterSize(i);
+      ++i;
+    }
+    ++c;
+  }
+  return ports;
+}
+
+fn SplitterPortsNeeded(ref d: Design) -> i32 {
+  var ports: i32 = 0;
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    ports += d.cluster_take_units[c];
+    ++c;
+  }
+  return ports;
+}
+
+fn TerminalPortsUsed(ref d: Design) -> i32 {
+  var used: i32 = 0;
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    used += d.term_ports_used[t];
+    ++t;
+  }
+  return used;
+}
+
+fn TerminalPortsInstalled(ref d: Design) -> i32 {
+  var ports: i32 = 0;
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    if (d.term_ports_used[t] > 0) {  // merge pass leaves dissolved slots empty
+      ports += TerminalSize(d.term_size_idx[t]);
+    }
+    ++t;
+  }
+  return ports;
+}
+
+fn LiveTerminals(ref d: Design) -> i32 {
+  var live: i32 = 0;
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    if (d.term_ports_used[t] > 0) {
+      ++live;
+    }
+    ++t;
+  }
+  return live;
+}
+
+fn FdhCapacityInstalled(ref d: Design) -> i32 {
+  var cap: i32 = 0;
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    cap += FdhSize(d.fdh_size_idx[c]);
+    ++c;
+  }
+  return cap;
+}
+
+// OLT line cards: full 16-port cards, remainder on the smallest covering
+// card — same graduated-size rule as every other component.
+fn OltCards(ref d: Design, ref count_by_size: array(i32, 2)) -> i32 {
+  let splitters: i32 = TotalSplitters(ref d);
+  let top: i32 = OltCardSizeCount() - 1;
+  count_by_size[top] = splitters / OltCardPorts(top);
+  count_by_size[0] = 0;
+  let rem: i32 = splitters % OltCardPorts(top);
+  var cards: i32 = count_by_size[top];
+  if (rem > 0) {
+    var idx: i32 = 0;
+    while (idx < top and OltCardPorts(idx) < rem) {
+      ++idx;
+    }
+    count_by_size[idx] += 1;
+    ++cards;
+  }
+  return cards;
+}
+
+fn OltPortsInstalled(ref d: Design) -> i32 {
+  var by_size: array(i32, 2);
+  let card_total: i32 = OltCards(ref d, ref by_size);
+  return by_size[0] * OltCardPorts(0) + by_size[1] * OltCardPorts(1) +
+         card_total * 0;
+}
+
+// ---------------------------------------------------------------------------
+// Utilization: used / installed, per component family
+// ---------------------------------------------------------------------------
+
+// Permille (x10 percent) for one-decimal printing without floats.
+fn PctX10(used: i32, installed: i32) -> i32 {
+  if (installed <= 0) {
+    return 0;
+  }
+  return ((used as i64) * 1000 / (installed as i64)) as i32;
+}
+
+fn PrintPct(label: str, used: i32, installed: i32) {
+  Core.PrintStr("  ");
+  Core.PrintStr(label);
+  Core.PrintStr(": ");
+  PrintInt(used);
+  Core.PrintStr("/");
+  PrintInt(installed);
+  Core.PrintStr(" = ");
+  let px10: i32 = PctX10(used, installed);
+  PrintInt(px10 / 10);
+  Core.PrintChar('.');
+  PrintDigit(px10 % 10);
+  Core.PrintStr("%\n");
+}
+
+// ---------------------------------------------------------------------------
 // QA checks (SCOPE.md: machine-readable verdict, non-zero exit on fail)
 // ---------------------------------------------------------------------------
 
@@ -49,6 +187,25 @@ fn QaLine(name: str, failures: i32) {
     Core.PrintStr(" FAIL");
   }
   NL();
+}
+
+fn QaUtil(name: str, used: i32, installed: i32) -> i32 {
+  let px10: i32 = PctX10(used, installed);
+  Core.PrintStr("  ");
+  Core.PrintStr(name);
+  Core.PrintStr(": ");
+  PrintInt(px10 / 10);
+  Core.PrintChar('.');
+  PrintDigit(px10 % 10);
+  Core.PrintStr("%");
+  if (px10 >= UtilizationFloorPct() * 10) {
+    Core.PrintStr(" ok\n");
+    return 0;
+  }
+  Core.PrintStr(" FAIL (floor ");
+  PrintInt(UtilizationFloorPct());
+  Core.PrintStr("%)\n");
+  return 1;
 }
 
 fn RunQa(ref d: Design) -> i32 {
@@ -67,7 +224,7 @@ fn RunQa(ref d: Design) -> i32 {
   QaLine("premises_served", unserved);
   errors += unserved;
 
-  // Drop-length rule.
+  // Drop-length rule (drops now run premises -> shared terminal).
   var long_drops: i32 = 0;
   p = 0;
   while (p < d.prem_count) {
@@ -79,11 +236,11 @@ fn RunQa(ref d: Design) -> i32 {
   QaLine("drop_length", long_drops);
   errors += long_drops;
 
-  // FDH capacity.
+  // Serving-area units within the chosen cabinet's capacity.
   var over_cap: i32 = 0;
   var c: i32 = 0;
   while (c < d.cluster_count) {
-    if (d.cluster_units[c] > MaxUnitsPerFdh()) {
+    if (d.cluster_units[c] > FdhSize(d.fdh_size_idx[c])) {
       ++over_cap;
     }
     ++c;
@@ -91,11 +248,11 @@ fn RunQa(ref d: Design) -> i32 {
   QaLine("fdh_capacity", over_cap);
   errors += over_cap;
 
-  // Terminal port capacity.
+  // Terminal ports within the chosen terminal size.
   var over_ports: i32 = 0;
   var t: i32 = 0;
   while (t < d.term_count) {
-    if (d.term_ports_used[t] > TerminalPorts()) {
+    if (d.term_ports_used[t] > TerminalSize(d.term_size_idx[t])) {
       ++over_ports;
     }
     ++t;
@@ -103,11 +260,17 @@ fn RunQa(ref d: Design) -> i32 {
   QaLine("terminal_ports", over_ports);
   errors += over_ports;
 
-  // Splitter capacity covers provisioned units.
+  // Splitter bank covers provisioned units per FDH.
   var under_split: i32 = 0;
   c = 0;
   while (c < d.cluster_count) {
-    if (d.fdh_splitters[c] * SplitterRatio() < d.cluster_take_units[c]) {
+    var cap: i32 = 0;
+    var i: i32 = 0;
+    while (i < SplitterSizeCount()) {
+      cap += d.fdh_split_by_size[c * 4 + i] * SplitterSize(i);
+      ++i;
+    }
+    if (cap < d.cluster_take_units[c]) {
       ++under_split;
     }
     ++c;
@@ -144,6 +307,16 @@ fn RunQa(ref d: Design) -> i32 {
   QaLine("feeder_routed", unrouted);
   errors += unrouted;
 
+  // Utilization floor on every port-bearing component family.
+  errors += QaUtil("util_terminal_ports", TerminalPortsUsed(ref d),
+                   TerminalPortsInstalled(ref d));
+  errors += QaUtil("util_splitter_ports", SplitterPortsNeeded(ref d),
+                   SplitterPortsInstalled(ref d));
+  errors += QaUtil("util_fdh_capacity", d.total_units,
+                   FdhCapacityInstalled(ref d));
+  errors += QaUtil("util_olt_card_ports", TotalSplitters(ref d),
+                   OltPortsInstalled(ref d));
+
   Core.PrintStr("qa verdict: ");
   if (errors == 0) {
     Core.PrintStr("PASS\n");
@@ -168,6 +341,19 @@ fn BomLine(name: str, qty: i64, unit: str, unit_cost: i64, ext: i64) {
   PrintMoney(unit_cost);
   Core.PrintStr(" ext=$");
   PrintMoney(ext);
+  NL();
+}
+
+fn BomCableLine(prefix: str, size: i32, meters: i64, unit_cost: i64) {
+  Core.PrintStr("  ");
+  Core.PrintStr(prefix);
+  PrintInt(size);
+  Core.PrintStr("f qty=");
+  PrintI64(meters);
+  Core.PrintStr(" m unit=$");
+  PrintMoney(unit_cost);
+  Core.PrintStr(" ext=$");
+  PrintMoney(meters * unit_cost);
   NL();
 }
 
@@ -220,12 +406,10 @@ fn Report(ref d: Design) -> i64 {
     ++p;
   }
 
-  var total_splitters: i32 = 0;
-  var c: i32 = 0;
-  while (c < d.cluster_count) {
-    total_splitters += d.fdh_splitters[c];
-    ++c;
-  }
+  let total_splitters: i32 = TotalSplitters(ref d);
+  var olt_by_size: array(i32, 2);
+  let olt_cards: i32 = OltCards(ref d, ref olt_by_size);
+  let olt_chassis: i32 = CeilDiv(olt_cards, OltChassisCardSlots());
 
   // --- headline metrics ---
   Core.PrintStr("design:\n");
@@ -236,13 +420,15 @@ fn Report(ref d: Design) -> i64 {
   Core.PrintStr(" serving_areas=");
   PrintInt(d.cluster_count);
   Core.PrintStr(" terminals=");
-  PrintInt(d.term_count);
+  PrintInt(LiveTerminals(ref d));
   NL();
   Core.PrintStr("  co_node=");
   PrintInt(d.co_node);
   Core.PrintStr(" olt_chassis=");
-  PrintInt(d.olt_count);
-  Core.PrintStr(" pon_ports=");
+  PrintInt(olt_chassis);
+  Core.PrintStr(" olt_cards=");
+  PrintInt(olt_cards);
+  Core.PrintStr(" pon_ports_used=");
   PrintInt(total_splitters);
   NL();
   var c2: i32 = 0;
@@ -255,6 +441,8 @@ fn Report(ref d: Design) -> i64 {
     PrintInt(d.cluster_prems[c2]);
     Core.PrintStr(" units=");
     PrintInt(d.cluster_units[c2]);
+    Core.PrintStr(" cabinet=");
+    PrintInt(FdhSize(d.fdh_size_idx[c2]));
     Core.PrintStr(" splitters=");
     PrintInt(d.fdh_splitters[c2]);
     Core.PrintStr(" feeder_m=");
@@ -262,6 +450,15 @@ fn Report(ref d: Design) -> i64 {
     NL();
     ++c2;
   }
+
+  // --- utilization (the design objective this report proves) ---
+  Core.PrintStr("utilization:\n");
+  PrintPct("terminal_ports", TerminalPortsUsed(ref d),
+           TerminalPortsInstalled(ref d));
+  PrintPct("splitter_ports", SplitterPortsNeeded(ref d),
+           SplitterPortsInstalled(ref d));
+  PrintPct("fdh_capacity", d.total_units, FdhCapacityInstalled(ref d));
+  PrintPct("olt_card_ports", total_splitters, OltPortsInstalled(ref d));
 
   // --- BOM with extended costs ---
   var total: i64 = 0;
@@ -281,34 +478,16 @@ fn Report(ref d: Design) -> i64 {
   i = 0;
   while (i < 6) {
     if (dist_m[i] > 0) {
-      let ext: i64 = dist_m[i] * CableCostPerM(i);
-      Core.PrintStr("  dist_cable_");
-      PrintInt(CableSize(i));
-      Core.PrintStr("f qty=");
-      PrintI64(dist_m[i]);
-      Core.PrintStr(" m unit=$");
-      PrintMoney(CableCostPerM(i));
-      Core.PrintStr(" ext=$");
-      PrintMoney(ext);
-      NL();
-      total += ext;
+      BomCableLine("dist_cable_", CableSize(i), dist_m[i], CableCostPerM(i));
+      total += dist_m[i] * CableCostPerM(i);
     }
     ++i;
   }
   i = 0;
   while (i < 6) {
     if (feed_m[i] > 0) {
-      let ext2: i64 = feed_m[i] * CableCostPerM(i);
-      Core.PrintStr("  feeder_cable_");
-      PrintInt(CableSize(i));
-      Core.PrintStr("f qty=");
-      PrintI64(feed_m[i]);
-      Core.PrintStr(" m unit=$");
-      PrintMoney(CableCostPerM(i));
-      Core.PrintStr(" ext=$");
-      PrintMoney(ext2);
-      NL();
-      total += ext2;
+      BomCableLine("feeder_cable_", CableSize(i), feed_m[i], CableCostPerM(i));
+      total += feed_m[i] * CableCostPerM(i);
     }
     ++i;
   }
@@ -322,25 +501,103 @@ fn Report(ref d: Design) -> i64 {
           DropUnitCost(), drop_cost);
   total += drop_cost;
 
-  let fdh_cost: i64 = (d.cluster_count as i64) * FdhUnitCost();
-  BomLine("fdh_cabinet", d.cluster_count as i64, "ea",
-          FdhUnitCost(), fdh_cost);
-  total += fdh_cost;
+  // FDH cabinets by size.
+  i = 0;
+  while (i < FdhSizeCount()) {
+    var count: i32 = 0;
+    var c: i32 = 0;
+    while (c < d.cluster_count) {
+      if (d.fdh_size_idx[c] == i) {
+        ++count;
+      }
+      ++c;
+    }
+    if (count > 0) {
+      Core.PrintStr("  fdh_cabinet_");
+      PrintInt(FdhSize(i));
+      Core.PrintStr(" qty=");
+      PrintInt(count);
+      Core.PrintStr(" ea unit=$");
+      PrintMoney(FdhCost(i));
+      Core.PrintStr(" ext=$");
+      PrintMoney((count as i64) * FdhCost(i));
+      NL();
+      total += (count as i64) * FdhCost(i);
+    }
+    ++i;
+  }
 
-  let split_cost: i64 = (total_splitters as i64) * SplitterUnitCost();
-  BomLine("splitter_1_32", total_splitters as i64, "ea",
-          SplitterUnitCost(), split_cost);
-  total += split_cost;
+  // Splitters by ratio.
+  i = 0;
+  while (i < SplitterSizeCount()) {
+    var count2: i32 = 0;
+    var c3: i32 = 0;
+    while (c3 < d.cluster_count) {
+      count2 += d.fdh_split_by_size[c3 * 4 + i];
+      ++c3;
+    }
+    if (count2 > 0) {
+      Core.PrintStr("  splitter_1_");
+      PrintInt(SplitterSize(i));
+      Core.PrintStr(" qty=");
+      PrintInt(count2);
+      Core.PrintStr(" ea unit=$");
+      PrintMoney(SplitterCost(i));
+      Core.PrintStr(" ext=$");
+      PrintMoney((count2 as i64) * SplitterCost(i));
+      NL();
+      total += (count2 as i64) * SplitterCost(i);
+    }
+    ++i;
+  }
 
-  let term_cost: i64 = (d.term_count as i64) * TerminalUnitCost();
-  BomLine("terminal_12p", d.term_count as i64, "ea",
-          TerminalUnitCost(), term_cost);
-  total += term_cost;
+  // Terminals by size.
+  i = 0;
+  while (i < TerminalSizeCount()) {
+    var count3: i32 = 0;
+    var t: i32 = 0;
+    while (t < d.term_count) {
+      if (d.term_ports_used[t] > 0 and d.term_size_idx[t] == i) {
+        ++count3;
+      }
+      ++t;
+    }
+    if (count3 > 0) {
+      Core.PrintStr("  terminal_");
+      PrintInt(TerminalSize(i));
+      Core.PrintStr("p qty=");
+      PrintInt(count3);
+      Core.PrintStr(" ea unit=$");
+      PrintMoney(TerminalCost(i));
+      Core.PrintStr(" ext=$");
+      PrintMoney((count3 as i64) * TerminalCost(i));
+      NL();
+      total += (count3 as i64) * TerminalCost(i);
+    }
+    ++i;
+  }
 
-  let olt_cost: i64 = (total_splitters as i64) * OltPortCost();
-  BomLine("olt_pon_port", total_splitters as i64, "ea",
-          OltPortCost(), olt_cost);
-  total += olt_cost;
+  // OLT line cards by size, plus per-port optics for lit ports.
+  i = 0;
+  while (i < OltCardSizeCount()) {
+    if (olt_by_size[i] > 0) {
+      Core.PrintStr("  olt_card_");
+      PrintInt(OltCardPorts(i));
+      Core.PrintStr("p qty=");
+      PrintInt(olt_by_size[i]);
+      Core.PrintStr(" ea unit=$");
+      PrintMoney(OltCardCost(i));
+      Core.PrintStr(" ext=$");
+      PrintMoney((olt_by_size[i] as i64) * OltCardCost(i));
+      NL();
+      total += (olt_by_size[i] as i64) * OltCardCost(i);
+    }
+    ++i;
+  }
+  let olt_optics_cost: i64 = (total_splitters as i64) * OltPortCost();
+  BomLine("olt_port_optics", total_splitters as i64, "ea",
+          OltPortCost(), olt_optics_cost);
+  total += olt_optics_cost;
 
   // --- cost rollup ---
   let trench_total: i64 = trench_m_soft + trench_m_asphalt;

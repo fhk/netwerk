@@ -12,7 +12,7 @@ library "model";
 // Design rules (SCOPE.md: rules.yml)
 // ---------------------------------------------------------------------------
 
-// Premises served per PON port (1:32 centralized split at the FDH).
+// Premises served per PON port at the largest split (1:32 centralized).
 fn SplitterRatio() -> i32 { return 32; }
 // Hard capacity limit per FDH serving area, in premises units.
 fn MaxUnitsPerFdh() -> i32 { return 432; }
@@ -24,13 +24,14 @@ fn MaxRouteM() -> i32 { return 20000; }
 fn TakeRatePct() -> i32 { return 65; }
 // Spare fibers added to distribution cable demand, percent.
 fn SparePct() -> i32 { return 10; }
-// Drop ports per access terminal.
-fn TerminalPorts() -> i32 { return 12; }
-// PON ports per OLT chassis.
-fn OltChassisPorts() -> i32 { return 256; }
+// Minimum port/capacity utilization for port-bearing equipment, percent.
+// Enforced as a QA error: designs that strand capacity fail the gate.
+fn UtilizationFloorPct() -> i32 { return 95; }
 
 // ---------------------------------------------------------------------------
 // Equipment catalog and cost model (SCOPE.md: catalog.yml), costs in cents.
+// Every lumpy component comes in graduated sizes so remainders round into
+// the smallest covering unit instead of stranding a large one.
 // ---------------------------------------------------------------------------
 
 fn CableSizeCount() -> i32 { return 6; }
@@ -54,6 +55,68 @@ fn CableCostPerM(idx: i32) -> i64 {
   return 780;                     // 288f $7.80/m
 }
 
+// Splitters: 1:4 / 1:8 / 1:16 / 1:32.
+fn SplitterSizeCount() -> i32 { return 4; }
+
+fn SplitterSize(idx: i32) -> i32 {
+  if (idx == 0) { return 4; }
+  if (idx == 1) { return 8; }
+  if (idx == 2) { return 16; }
+  return 32;
+}
+
+fn SplitterCost(idx: i32) -> i64 {
+  if (idx == 0) { return 6000; }    // 1:4   $60
+  if (idx == 1) { return 9000; }    // 1:8   $90
+  if (idx == 2) { return 12000; }   // 1:16  $120
+  return 18000;                     // 1:32  $180
+}
+
+// Access terminals: 4 / 8 / 12 drop ports.
+fn TerminalSizeCount() -> i32 { return 3; }
+
+fn TerminalSize(idx: i32) -> i32 {
+  if (idx == 0) { return 4; }
+  if (idx == 1) { return 8; }
+  return 12;
+}
+
+fn TerminalCost(idx: i32) -> i64 {
+  if (idx == 0) { return 12000; }   // 4-port  $120
+  if (idx == 1) { return 18000; }   // 8-port  $180
+  return 25000;                     // 12-port $250
+}
+
+// FDH cabinets: capacity in premises units served.
+fn FdhSizeCount() -> i32 { return 3; }
+
+fn FdhSize(idx: i32) -> i32 {
+  if (idx == 0) { return 144; }
+  if (idx == 1) { return 288; }
+  return 432;
+}
+
+fn FdhCost(idx: i32) -> i64 {
+  if (idx == 0) { return 120000; }  // 144-unit $1200
+  if (idx == 1) { return 180000; }  // 288-unit $1800
+  return 250000;                    // 432-unit $2500
+}
+
+// OLT line cards: 8 / 16 PON ports; a chassis holds 16 card slots.
+fn OltCardSizeCount() -> i32 { return 2; }
+
+fn OltCardPorts(idx: i32) -> i32 {
+  if (idx == 0) { return 8; }
+  return 16;
+}
+
+fn OltCardCost(idx: i32) -> i64 {
+  if (idx == 0) { return 70000; }   // 8-port card  $700
+  return 120000;                    // 16-port card $1200
+}
+
+fn OltChassisCardSlots() -> i32 { return 16; }
+
 // Surface classes for road edges.
 fn SurfaceSoft() -> i32 { return 0; }
 fn SurfaceAsphalt() -> i32 { return 1; }
@@ -64,12 +127,9 @@ fn TrenchCostPerM(surface: i32) -> i64 {
   return 4500;                                        // $45/m soft
 }
 
-fn SplitterUnitCost() -> i64 { return 18000; }     // 1:32 splitter, $180
-fn FdhUnitCost() -> i64 { return 250000; }         // cabinet incl. install, $2500
-fn TerminalUnitCost() -> i64 { return 25000; }     // 12-port terminal, $250
 fn DropUnitCost() -> i64 { return 12000; }         // drop assembly, $120
 fn DropCablePerM() -> i64 { return 150; }          // drop cable, $1.50/m
-fn OltPortCost() -> i64 { return 8500; }           // OLT PON port share, $85
+fn OltPortCost() -> i64 { return 8500; }           // OLT PON optics share, $85
 
 // ---------------------------------------------------------------------------
 // Capacities of the fixed-size working store.
@@ -77,9 +137,9 @@ fn OltPortCost() -> i64 { return 8500; }           // OLT PON port share, $85
 
 fn MaxNodes() -> i32 { return 1024; }
 fn MaxEdges() -> i32 { return 4096; }
-fn MaxPremises() -> i32 { return 2048; }
-fn MaxClusters() -> i32 { return 64; }
-fn MaxTerminals() -> i32 { return 1024; }
+fn MaxPremises() -> i32 { return 12288; }
+fn MaxClusters() -> i32 { return 32; }
+fn MaxTerminals() -> i32 { return 2048; }
 
 // ---------------------------------------------------------------------------
 // The Design object: one instance is the unit of work handed through every
@@ -98,7 +158,6 @@ class Design {
     d.cluster_count = 0;
     d.term_count = 0;
     d.co_node = -1;
-    d.olt_count = 0;
     d.total_units = 0;
     d.heap_size = 0;
     var i: i32 = 0;
@@ -112,6 +171,11 @@ class Design {
       d.feeder_fibers[e] = 0;
       d.trench_used[e] = false;
       ++e;
+    }
+    var c: i32 = 0;
+    while (c < MaxClusters() * SplitterSizeCount()) {
+      d.fdh_split_by_size[c] = 0;
+      ++c;
     }
     return var;
   }
@@ -138,37 +202,38 @@ class Design {
   // --- premises ---
   var prem_count: i32;
   var total_units: i32;
-  var prem_x: array(i32, 2048);
-  var prem_y: array(i32, 2048);
-  var prem_units: array(i32, 2048);
-  var prem_snap_node: array(i32, 2048);
-  var prem_drop_len: array(i32, 2048);
-  var prem_cluster: array(i32, 2048);
-  var prem_terminal: array(i32, 2048);
+  var prem_x: array(i32, 12288);
+  var prem_y: array(i32, 12288);
+  var prem_units: array(i32, 12288);
+  var prem_snap_node: array(i32, 12288);
+  var prem_drop_len: array(i32, 12288);
+  var prem_cluster: array(i32, 12288);
+  var prem_terminal: array(i32, 12288);
 
   // --- serving areas / FDH sites ---
   var cluster_count: i32;
-  var seed_node: array(i32, 64);
-  var cluster_units: array(i32, 64);
-  var cluster_prems: array(i32, 64);
-  var cluster_take_units: array(i32, 64);  // units provisioned at take rate
-  var fdh_node: array(i32, 64);
-  var fdh_splitters: array(i32, 64);
-  var fdh_route_len: array(i32, 64);   // feeder route meters CO -> FDH
+  var seed_node: array(i32, 32);
+  var cluster_units: array(i32, 32);
+  var cluster_prems: array(i32, 32);
+  var cluster_take_units: array(i32, 32);  // units provisioned at take rate
+  var fdh_node: array(i32, 32);
+  var fdh_splitters: array(i32, 32);       // total splitter count (all sizes)
+  var fdh_split_by_size: array(i32, 128);  // [cluster * 4 + size_idx]
+  var fdh_size_idx: array(i32, 32);        // chosen cabinet size per cluster
+  var fdh_route_len: array(i32, 32);       // feeder route meters CO -> FDH
   // Graph distance premises <- each cluster seed, row-major [seed][premises].
-  var seed_dist: array(i32, 131072);   // 64 x 2048
+  var seed_dist: array(i32, 393216);       // 32 x 12288
 
   // --- access terminals ---
   var term_count: i32;
-  var term_node: array(i32, 1024);
-  var term_cluster: array(i32, 1024);
-  var term_ports_used: array(i32, 1024);
-  var term_units: array(i32, 1024);
-  var term_path_len: array(i32, 1024);  // tree route meters terminal -> FDH
+  var term_node: array(i32, 2048);
+  var term_cluster: array(i32, 2048);
+  var term_ports_used: array(i32, 2048);
+  var term_size_idx: array(i32, 2048);     // catalog size chosen at close
+  var term_path_len: array(i32, 2048);     // tree route meters terminal -> FDH
 
   // --- CO / OLT ---
   var co_node: i32;
-  var olt_count: i32;
 
   // --- per-edge cable/trench usage (design results) ---
   var dist_fibers: array(i32, 4096);
@@ -179,6 +244,8 @@ class Design {
   var in_tree: array(bool, 1024);
   var tree_parent_node: array(i32, 1024);  // toward the FDH
   var tree_parent_edge: array(i32, 1024);
+  var node_path_m: array(i32, 1024);       // tree route meters node -> FDH
+  var node_units: array(i32, 1024);        // demand units snapped per node
 
   // --- Dijkstra working state (reused across stages) ---
   var dist: array(i64, 1024);
