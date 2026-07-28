@@ -494,7 +494,7 @@ The interchange format opens with `NETWERK <version>` and is versioned independe
 
 ## Outputs, exports & QA
 
-This section defines the **target** output contract (M3, when GDAL interop lands); the shipped v0 emits the report, BOM, and QA subset as structured text — see the worked example below. A design run produces one self-contained design package: geometric layers, a logical connectivity table, tabular rollups (BOM/BOQ, costs), a QA report, and a human-readable summary. Everything lives in one GeoPackage plus sidecar CSV/JSON/HTML files. `netwerk export` writes this design-package `.gpkg` carrying the stable schema below; the working `project.gpkg` remains the in-progress source of truth (its internal schema is in [Data model & inputs](#data-model--inputs)).
+This section defines the **target** output contract (M3, when GDAL interop lands); the shipped v0 emits the report, BOM, and QA subset as structured text, plus per-layer GeoJSON via the `netwerk_export` binary and `tools/design2geojson.py` (see the Exports table) — see the worked example below. A design run produces one self-contained design package: geometric layers, a logical connectivity table, tabular rollups (BOM/BOQ, costs), a QA report, and a human-readable summary. Everything lives in one GeoPackage plus sidecar CSV/JSON/HTML files. `netwerk export` writes this design-package `.gpkg` carrying the stable schema below; the working `project.gpkg` remains the in-progress source of truth (its internal schema is in [Data model & inputs](#data-model--inputs)).
 
 ### Geometric layers
 
@@ -552,7 +552,7 @@ The **summary report** (`report.md`, rendered to `report.html`) is one page: hea
 | Format | Status | Notes |
 |---|---|---|
 | GeoPackage | Native, always written | All layers + tables + metadata in one `.gpkg` |
-| GeoJSON | Supported | One file per layer, EPSG:4326, for web-map handoff |
+| GeoJSON | **Shipped (v0)** | One file per layer, EPSG:4326: `netwerk_export` emits a geometry dump, `tools/design2geojson.py` joins it with the interchange geometry and the converter's projection anchor. Layers: central_office, cabinets, terminals, premises, drops, fiber_feeder, fiber_distribution, trench, serving_areas |
 | KMZ | Supported | Styled for field review: structures, routes, serving areas; attribute subset in balloons |
 | DXF | **Deferred** | CAD/permit-drawing handoff is post-v1; the stable GeoPackage schema is the interchange point until then |
 

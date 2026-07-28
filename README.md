@@ -81,6 +81,24 @@ utilization:
 qa verdict: PASS
 ```
 
+## GeoJSON layers
+
+Every design exports as one GeoJSON file per layer (EPSG:4326), ready for
+QGIS or any web map:
+
+```sh
+./build/netwerk_export < district.txt > district.geom.txt
+python3 tools/design2geojson.py \
+  --interchange district.txt --geom district.geom.txt \
+  --meta district.txt.meta.json --out out/     # meta = converter's anchor
+```
+
+Layers: `central_office`, `cabinets` (FDH), `terminals`, `premises`,
+`drops`, `fiber_feeder`, `fiber_distribution`, `trench`, `serving_areas`.
+The committed parcel-district design ships its layers in
+`designs/parcels_district/` (LFS), e.g. 11,028 trench segments, 940
+terminals, 6,719 drops — feature counts cross-check the design report.
+
 ## Testing
 
 ```sh

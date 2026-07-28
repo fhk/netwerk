@@ -24,5 +24,8 @@ mkdir -p build
 "$CARBON" build --output=build/netwerk \
   src/io_utils.carbon src/model.carbon src/graph.carbon \
   src/stages.carbon src/outputs.carbon src/netwerk.carbon
-echo "built: build/gen_fixture build/netwerk"
+"$CARBON" build --output=build/netwerk_export \
+  src/io_utils.carbon src/model.carbon src/graph.carbon \
+  src/stages.carbon src/outputs.carbon src/netwerk_export.carbon
+echo "built: build/gen_fixture build/netwerk build/netwerk_export"
 echo "run:   ./build/gen_fixture | ./build/netwerk"

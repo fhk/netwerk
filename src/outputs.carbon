@@ -634,3 +634,98 @@ fn Report(ref d: Design) -> i64 {
   NL();
   return total;
 }
+
+// ---------------------------------------------------------------------------
+// Geometry dump — machine-readable design detail for GIS export
+// ---------------------------------------------------------------------------
+
+// Emitted by the netwerk_export binary and consumed by
+// tools/design2geojson.py, which joins these ids with the interchange
+// geometry and writes per-layer GeoJSON. One line per element, "G "-prefixed:
+//   G co <node>
+//   G fdh <area> <node> <cabinet_units> <splitters> <units> <take_units> <feeder_m>
+//   G term <id> <node> <area> <ports> <used> <path_m>          (live only)
+//   G prem <id> <area> <terminal> <drop_m>
+//   G edge <id> <trench01> <dist_fibers> <feeder_fibers>       (used edges only)
+fn PrintGeometry(ref d: Design) {
+  Core.PrintStr("GEOM 1\n");
+
+  Core.PrintStr("G co ");
+  PrintInt(d.co_node);
+  NL();
+
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    Core.PrintStr("G fdh ");
+    PrintInt(c);
+    Core.PrintStr(" ");
+    PrintInt(d.fdh_node[c]);
+    Core.PrintStr(" ");
+    PrintInt(FdhSize(d.fdh_size_idx[c]));
+    Core.PrintStr(" ");
+    PrintInt(d.fdh_splitters[c]);
+    Core.PrintStr(" ");
+    PrintInt(d.cluster_units[c]);
+    Core.PrintStr(" ");
+    PrintInt(d.cluster_take_units[c]);
+    Core.PrintStr(" ");
+    PrintInt(d.fdh_route_len[c]);
+    NL();
+    ++c;
+  }
+
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    if (d.term_ports_used[t] > 0) {
+      Core.PrintStr("G term ");
+      PrintInt(t);
+      Core.PrintStr(" ");
+      PrintInt(d.term_node[t]);
+      Core.PrintStr(" ");
+      PrintInt(d.term_cluster[t]);
+      Core.PrintStr(" ");
+      PrintInt(TerminalSize(d.term_size_idx[t]));
+      Core.PrintStr(" ");
+      PrintInt(d.term_ports_used[t]);
+      Core.PrintStr(" ");
+      PrintInt(d.term_path_len[t]);
+      NL();
+    }
+    ++t;
+  }
+
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    Core.PrintStr("G prem ");
+    PrintInt(p);
+    Core.PrintStr(" ");
+    PrintInt(d.prem_cluster[p]);
+    Core.PrintStr(" ");
+    PrintInt(d.prem_terminal[p]);
+    Core.PrintStr(" ");
+    PrintInt(d.prem_drop_len[p]);
+    NL();
+    ++p;
+  }
+
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    if (d.trench_used[e] or d.dist_fibers[e] > 0 or d.feeder_fibers[e] > 0) {
+      Core.PrintStr("G edge ");
+      PrintInt(e);
+      Core.PrintStr(" ");
+      if (d.trench_used[e]) {
+        PrintInt(1);
+      } else {
+        PrintInt(0);
+      }
+      Core.PrintStr(" ");
+      PrintInt(d.dist_fibers[e]);
+      Core.PrintStr(" ");
+      PrintInt(d.feeder_fibers[e]);
+      NL();
+    }
+    ++e;
+  }
+  Core.PrintStr("END\n");
+}

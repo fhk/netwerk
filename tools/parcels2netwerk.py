@@ -942,6 +942,16 @@ def main():
 
     ab = aoi_bbox_deg(aoi)
     emit(res, args.out)
+    # Sidecar with the exact projection anchor, so downstream exporters
+    # (tools/design2geojson.py) can invert local meters back to WGS84.
+    meta_path = args.out + ".meta.json"
+    with open(meta_path, "w") as mf:
+        json.dump({"projection": "equirectangular",
+                   "lon0": lon0, "lat0": lat0,
+                   "kx_m_per_deg": kx, "ky_m_per_deg": ky,
+                   "crs": "EPSG:4326"}, mf, indent=1, sort_keys=True)
+        mf.write("\n")
+    log("meta sidecar: %s" % meta_path)
     stats = self_validate(args.out, args)
     out_size = os.path.getsize(args.out)
 
