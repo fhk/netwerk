@@ -1,0 +1,34 @@
+design:
+  premises=433 units=456 serving_areas=2 terminals=100
+  co_node=23 olt_chassis=1 pon_ports=10
+  area 0: fdh_node=23 premises=227 units=227 splitters=5 feeder_m=0
+  area 1: fdh_node=66 premises=206 units=229 splitters=5 feeder_m=990
+bom:
+  trench_soft qty=10340 m unit=$45.00 ext=$465300.00
+  trench_asphalt qty=550 m unit=$150.00 ext=$82500.00
+  dist_cable_12f qty=4290 m unit=$0.95 ext=$4075.50
+  dist_cable_24f qty=2750 m unit=$1.30 ext=$3575.00
+  dist_cable_48f qty=1650 m unit=$2.10 ext=$3465.00
+  dist_cable_96f qty=880 m unit=$3.40 ext=$2992.00
+  dist_cable_144f qty=660 m unit=$4.70 ext=$3102.00
+  dist_cable_288f qty=550 m unit=$7.80 ext=$4290.00
+  feeder_cable_12f qty=990 m unit=$0.95 ext=$940.50
+  drop_cable qty=16389 m unit=$1.50 ext=$24583.50
+  drop_assembly qty=433 ea unit=$120.00 ext=$51960.00
+  fdh_cabinet qty=2 ea unit=$2500.00 ext=$5000.00
+  splitter_1_32 qty=10 ea unit=$180.00 ext=$1800.00
+  terminal_12p qty=100 ea unit=$250.00 ext=$25000.00
+  olt_pon_port qty=10 ea unit=$85.00 ext=$850.00
+cost:
+  total_capex=$679433.50
+  per_unit_passed=$1489.98
+  trench_m=10890 cable_route_m=11770 sharing_x100=108
+qa:
+  premises_served: ok
+  drop_length: ok
+  fdh_capacity: ok
+  terminal_ports: ok
+  splitter_capacity: ok
+  route_length_budget: ok
+  feeder_routed: ok
+qa verdict: PASS
