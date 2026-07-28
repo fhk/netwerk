@@ -51,6 +51,36 @@ cost:
 qa verdict: PASS
 ```
 
+## Real parcel input
+
+Parcel polygons can drive a design directly: parcel **boundaries** become the
+permissible fiber routes, parcel **centroids** become the customer points, and
+disconnected parcel islands are stitched into one routable graph by generated
+**street-crossing** edges (nearest-node bridges between islands, plus extra
+short crossings so routes don't detour around a single bridge).
+
+```sh
+python3 tools/parcels2netwerk.py \
+  --in your_parcels.geojson --out district.txt \
+  --max-nodes 16000 --max-edges 48000 --max-premises 12000
+./build/netwerk < district.txt
+```
+
+The converter streams arbitrarily large GeoJSON (never loads it whole),
+auto-selects the densest district that fits the engine's capacities, simplifies
+parcel rings, and self-validates connectivity and the 150 m drop rule before
+emitting. The repo ships a real example: `data/parcels_district.txt`, a
+6,719-parcel district derived from a Monterey County, CA parcel export
+(15,668 nodes, 23,824 edges, 471 islands bridged by 967 crossing edges). It
+runs in ~11 s and passes every QA check including the 95% utilization floor:
+
+```
+utilization:
+  terminal_ports: 98.8%  splitter_ports: 97.5%
+  fdh_capacity:   99.2%  olt_card_ports: 100.0%
+qa verdict: PASS
+```
+
 ## Testing
 
 ```sh

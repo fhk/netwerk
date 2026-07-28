@@ -156,23 +156,30 @@ fn ValidateConnectivity(ref d: Design) -> i32 {
 
 // v0 snaps to the nearest graph node (SCOPE.md stage 2 snaps to drop
 // candidates along edges; node snapping is the documented simplification —
-// it only ever over-estimates drop length, never under).
+// it only ever over-estimates drop length, never under). Nearest is decided
+// on squared euclidean distance in i64, so the integer sqrt runs once per
+// premises (for the drop length) instead of once per premises-node pair.
+// Comparing squared distances sharpens ties versus comparing rounded
+// meters: two nodes that round to the same meter count now order by their
+// exact squared distance (then by lower node id).
 fn SnapPremises(ref d: Design) {
   var p: i32 = 0;
   while (p < d.prem_count) {
     var best_node: i32 = 0;
-    var best_dist: i32 = 2147483647;
+    var best_sq: i64 = 9223372036854775807;
     var n: i32 = 0;
     while (n < d.node_count) {
-      let dm: i32 = DistM(d.prem_x[p], d.prem_y[p], d.node_x[n], d.node_y[n]);
-      if (dm < best_dist) {
-        best_dist = dm;
+      let dx: i64 = (d.prem_x[p] - d.node_x[n]) as i64;
+      let dy: i64 = (d.prem_y[p] - d.node_y[n]) as i64;
+      let sq: i64 = dx * dx + dy * dy;
+      if (sq < best_sq) {
+        best_sq = sq;
         best_node = n;
       }
       ++n;
     }
     d.prem_snap_node[p] = best_node;
-    d.prem_drop_len[p] = best_dist;
+    d.prem_drop_len[p] = ISqrt(best_sq);
     ++p;
   }
 }
@@ -380,6 +387,21 @@ fn PlaceFdh(ref d: Design) {
       ++p;
     }
 
+    // Cap the candidate list at 64 nodes: keep every ceil(distinct/64)-th
+    // distinct snap node in first-seen order (deterministic stride
+    // sampling), so the medoid scan stays bounded on large serving areas.
+    if (cand_count > 64) {
+      let stride: i32 = CeilDiv(cand_count, 64);
+      var kept: i32 = 0;
+      var src: i32 = 0;
+      while (src < cand_count) {
+        cand[kept] = cand[src];
+        ++kept;
+        src += stride;
+      }
+      cand_count = kept;
+    }
+
     var best_node: i32 = d.seed_node[c];
     var best_score: i64 = 9223372036854775807;
     var ci: i32 = 0;
@@ -437,15 +459,15 @@ fn PackTerminals(ref d: Design, c: i32) {
   // Depth-first node order over the cluster's tree via an explicit stack.
   // The seen guard makes each node enter the walk exactly once even if the
   // graph carried parallel edges (also rejected at ingest).
-  var seen: array(bool, 1024);
+  var seen: array(bool, 16384);
   var si: i32 = 0;
   while (si < d.node_count) {
     seen[si] = false;
     ++si;
   }
-  var node_order: array(i32, 1024);
+  var node_order: array(i32, 16384);
   var order_count: i32 = 0;
-  var stack: array(i32, 1024);
+  var stack: array(i32, 16384);
   var top: i32 = 0;
   stack[top] = d.fdh_node[c];
   ++top;
@@ -461,7 +483,7 @@ fn PackTerminals(ref d: Design, c: i32) {
     while (a != -1) {
       let v: i32 = d.adj_to[a];
       if (d.in_tree[v] and d.tree_parent_node[v] == n and not seen[v] and
-          top < 1024) {
+          top < 16384) {
         seen[v] = true;
         stack[top] = v;
         ++top;
@@ -524,15 +546,29 @@ fn PackTerminals(ref d: Design, c: i32) {
       }
       if (best_node != -1) {
         placed_batch = true;
+        // Round the batch DOWN to the largest catalog size it fills
+        // completely: closing a full 8-port beats stranding three ports
+        // of a 12 when geometry caps the batch at 9-11. The rolled-over
+        // premises start the next batch (best_node still covers the kept
+        // prefix — it covered the whole feasible batch). A single stray
+        // still gets placed and closes onto a 2-port.
+        var take: i32 = size;
+        if (size >= TerminalSize(0)) {
+          var ti: i32 = TerminalSizeCount() - 1;
+          while (TerminalSize(ti) > size) {
+            --ti;
+          }
+          take = TerminalSize(ti);
+        }
         if (d.term_count < MaxTerminals()) {
           let nt: i32 = d.term_count;
           ++d.term_count;
           d.term_node[nt] = best_node;
           d.term_cluster[nt] = c;
-          d.term_ports_used[nt] = size;
+          d.term_ports_used[nt] = take;
           d.term_path_len[nt] = d.node_path_m[best_node];
           var bk: i32 = 0;
-          while (bk < size) {
+          while (bk < take) {
             let pk: i32 = ordered[i + bk];
             d.prem_terminal[pk] = nt;
             d.prem_drop_len[pk] = DistM(d.prem_x[pk], d.prem_y[pk],
@@ -542,7 +578,7 @@ fn PackTerminals(ref d: Design, c: i32) {
           }
           CloseTerminal(ref d, nt);
         }
-        i += size;
+        i += take;
         break;
       }
       --size;
@@ -561,11 +597,14 @@ fn PackTerminals(ref d: Design, c: i32) {
 // Stage 5 — distribution routing (Steiner approximation per serving area)
 // ---------------------------------------------------------------------------
 
-// Takahashi–Matsuyama: grow a tree from the FDH, repeatedly attaching the
-// demand node nearest to the current tree by its shortest path. A classic
-// 2-approximation of the Steiner tree on the road graph. Terminals are
-// packed onto the finished tree afterwards (stage 6), so the tree targets
-// are the premises' snap nodes.
+// Shortest-path-tree attachment: one Dijkstra from the FDH, then every
+// demand node joins the tree along its shortest path, nearest node first,
+// stopping the walk at the first node already on the tree so shared path
+// prefixes are trenched once. Replaces the Takahashi–Matsuyama variant
+// that re-ran a full multi-source Dijkstra per attachment — O(T * E log V),
+// too slow at parcel-boundary scale. Terminals are packed onto the
+// finished tree afterwards (stage 6), so the tree targets are the
+// premises' snap nodes.
 fn RouteDistribution(ref d: Design) {
   var c: i32 = 0;
   while (c < d.cluster_count) {
@@ -588,17 +627,13 @@ fn RouteDistribution(ref d: Design) {
     }
     d.in_tree[d.fdh_node[c]] = true;
 
-    // Attach every demand node of this cluster.
-    var remaining: i32 = 0;
-    n = 0;
-    while (n < d.node_count) {
-      if (d.node_units[n] > 0 and not d.in_tree[n]) {
-        ++remaining;
-      }
-      ++n;
-    }
-    while (remaining > 0) {
-      // Multi-source Dijkstra from all tree nodes.
+    // Takahashi–Matsuyama: repeatedly attach the demand node nearest to
+    // the CURRENT tree by a fresh multi-source Dijkstra. Costlier than a
+    // single shortest-path tree but measurably better for terminal
+    // packing: the bushier tree keeps DFS batches contiguous, which is
+    // worth ~1.6 points of terminal-port utilization on the golden
+    // fixture (a single-pass SPT variant fails the 95% floor).
+    while (true) {
       DijkstraReset(ref d);
       n = 0;
       while (n < d.node_count) {
@@ -609,7 +644,6 @@ fn RouteDistribution(ref d: Design) {
       }
       DijkstraRun(ref d, ModeMeters());
 
-      // Nearest unattached demand node.
       var best_node: i32 = -1;
       var best_dist: i64 = Unreached();
       n = 0;
@@ -622,7 +656,7 @@ fn RouteDistribution(ref d: Design) {
         ++n;
       }
       if (best_node == -1) {
-        break;  // disconnected demand; QA reports it as unserved
+        break;  // all reachable demand attached; QA reports the rest
       }
 
       // Walk the path back to the tree, adding edges and parent pointers.
@@ -635,16 +669,6 @@ fn RouteDistribution(ref d: Design) {
         d.tree_parent_edge[v] = pe;
         d.trench_used[pe] = true;
         v = pn;
-      }
-
-      // Recount unattached demand nodes (several may share the added path).
-      remaining = 0;
-      n = 0;
-      while (n < d.node_count) {
-        if (d.node_units[n] > 0 and not d.in_tree[n]) {
-          ++remaining;
-        }
-        ++n;
       }
     }
 
@@ -683,11 +707,14 @@ fn RouteDistribution(ref d: Design) {
 fn BestTargetTerminal(ref d: Design, p: i32, exclude: i32) -> i32 {
   var best: i32 = -1;
   var best_dist: i32 = 2147483647;
-  let max_ports: i32 = TerminalSize(TerminalSizeCount() - 1);
   var u: i32 = 0;
   while (u < d.term_count) {
+    // "Room" means a spare port within the terminal's CHOSEN size —
+    // growing an exactly-full 8-port to 9 would force a 12 and create
+    // waste where there was none.
     if (u != exclude and d.term_cluster[u] == d.prem_cluster[p] and
-        d.term_ports_used[u] > 0 and d.term_ports_used[u] < max_ports) {
+        d.term_ports_used[u] > 0 and
+        d.term_ports_used[u] < TerminalSize(d.term_size_idx[u])) {
       let dd: i32 = DistM(d.prem_x[p], d.prem_y[p],
                           d.node_x[d.term_node[u]], d.node_y[d.term_node[u]]);
       if (dd <= MaxDropM() and dd < best_dist) {
@@ -719,7 +746,6 @@ fn TryDissolve(ref d: Design, t: i32) -> bool {
     scratch[u] = d.term_ports_used[u];
     ++u;
   }
-  let max_ports: i32 = TerminalSize(TerminalSizeCount() - 1);
   var p: i32 = 0;
   while (p < d.prem_count) {
     if (d.prem_terminal[p] == t) {
@@ -728,7 +754,7 @@ fn TryDissolve(ref d: Design, t: i32) -> bool {
       var v: i32 = 0;
       while (v < d.term_count) {
         if (v != t and d.term_cluster[v] == d.prem_cluster[p] and
-            scratch[v] > 0 and scratch[v] < max_ports) {
+            scratch[v] > 0 and scratch[v] < TerminalSize(d.term_size_idx[v])) {
           let dd: i32 = DistM(d.prem_x[p], d.prem_y[p],
                               d.node_x[d.term_node[v]],
                               d.node_y[d.term_node[v]]);

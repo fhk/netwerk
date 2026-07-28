@@ -72,18 +72,22 @@ fn SplitterCost(idx: i32) -> i64 {
   return 18000;                     // 1:32  $180
 }
 
-// Access terminals: 4 / 8 / 12 drop ports.
-fn TerminalSizeCount() -> i32 { return 3; }
+// Access terminals: 2 / 4 / 6 / 8 / 12 drop ports (the standard MST lineup).
+fn TerminalSizeCount() -> i32 { return 5; }
 
 fn TerminalSize(idx: i32) -> i32 {
-  if (idx == 0) { return 4; }
-  if (idx == 1) { return 8; }
+  if (idx == 0) { return 2; }
+  if (idx == 1) { return 4; }
+  if (idx == 2) { return 6; }
+  if (idx == 3) { return 8; }
   return 12;
 }
 
 fn TerminalCost(idx: i32) -> i64 {
-  if (idx == 0) { return 12000; }   // 4-port  $120
-  if (idx == 1) { return 18000; }   // 8-port  $180
+  if (idx == 0) { return 8000; }    // 2-port  $80
+  if (idx == 1) { return 12000; }   // 4-port  $120
+  if (idx == 2) { return 15000; }   // 6-port  $150
+  if (idx == 3) { return 18000; }   // 8-port  $180
   return 25000;                     // 12-port $250
 }
 
@@ -137,8 +141,8 @@ fn OltPortCost() -> i64 { return 8500; }           // OLT PON optics share, $85
 // Capacities of the fixed-size working store.
 // ---------------------------------------------------------------------------
 
-fn MaxNodes() -> i32 { return 1024; }
-fn MaxEdges() -> i32 { return 4096; }
+fn MaxNodes() -> i32 { return 16384; }
+fn MaxEdges() -> i32 { return 49152; }
 fn MaxPremises() -> i32 { return 12288; }
 fn MaxClusters() -> i32 { return 32; }
 fn MaxTerminals() -> i32 { return 2048; }
@@ -184,22 +188,22 @@ class Design {
 
   // --- road graph nodes ---
   var node_count: i32;
-  var node_x: array(i32, 1024);
-  var node_y: array(i32, 1024);
+  var node_x: array(i32, 16384);
+  var node_y: array(i32, 16384);
 
   // --- road graph edges (undirected) ---
   var edge_count: i32;
-  var edge_from: array(i32, 4096);
-  var edge_to: array(i32, 4096);
-  var edge_len: array(i32, 4096);
-  var edge_surface: array(i32, 4096);
+  var edge_from: array(i32, 49152);
+  var edge_to: array(i32, 49152);
+  var edge_len: array(i32, 49152);
+  var edge_surface: array(i32, 49152);
 
   // --- adjacency lists (two directed half-edges per edge) ---
   var adj_count: i32;
-  var adj_head: array(i32, 1024);
-  var adj_next: array(i32, 8192);
-  var adj_to: array(i32, 8192);
-  var adj_edge: array(i32, 8192);
+  var adj_head: array(i32, 16384);
+  var adj_next: array(i32, 98304);
+  var adj_to: array(i32, 98304);
+  var adj_edge: array(i32, 98304);
 
   // --- premises ---
   var prem_count: i32;
@@ -238,25 +242,25 @@ class Design {
   var co_node: i32;
 
   // --- per-edge cable/trench usage (design results) ---
-  var dist_fibers: array(i32, 4096);
-  var feeder_fibers: array(i32, 4096);
-  var trench_used: array(bool, 4096);
+  var dist_fibers: array(i32, 49152);
+  var feeder_fibers: array(i32, 49152);
+  var trench_used: array(bool, 49152);
 
   // --- distribution-tree working state (reset per serving area) ---
-  var in_tree: array(bool, 1024);
-  var tree_parent_node: array(i32, 1024);  // toward the FDH
-  var tree_parent_edge: array(i32, 1024);
-  var node_path_m: array(i32, 1024);       // tree route meters node -> FDH
-  var node_units: array(i32, 1024);        // demand units snapped per node
+  var in_tree: array(bool, 16384);
+  var tree_parent_node: array(i32, 16384);  // toward the FDH
+  var tree_parent_edge: array(i32, 16384);
+  var node_path_m: array(i32, 16384);       // tree route meters node -> FDH
+  var node_units: array(i32, 16384);        // demand units snapped per node
 
   // --- Dijkstra working state (reused across stages) ---
-  var dist: array(i64, 1024);
-  var prev_node: array(i32, 1024);
-  var prev_edge: array(i32, 1024);
-  var visited: array(bool, 1024);
+  var dist: array(i64, 16384);
+  var prev_node: array(i32, 16384);
+  var prev_edge: array(i32, 16384);
+  var visited: array(bool, 16384);
   // Lazy-insertion binary heap: up to one entry per relaxation.
   var heap_size: i32;
-  var heap_node: array(i32, 8192);
+  var heap_node: array(i32, 131072);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,21 +1,34 @@
 #!/usr/bin/env bash
-# Golden-file regression test: the design must pass QA (exit 0) and the
+# Golden-file regression tests: each design must pass QA (exit 0) and its
 # report must be byte-identical to the committed golden output.
 # Re-bless deliberately after a reviewed change:  ./test.sh --bless
 set -euo pipefail
 cd "$(dirname "$0")"
 
-out="$(mktemp)"
-trap 'rm -f "$out"' EXIT
+bless="${1:-}"
+fail=0
 
-./build/gen_fixture | ./build/netwerk > "$out"
+check() { # name, golden, output
+  if [ "$bless" = "--bless" ]; then
+    cp "$3" "$2"
+    echo "golden re-blessed: $2"
+  elif ! diff -u "$2" "$3"; then
+    fail=1
+  else
+    echo "golden test ($1): PASS (QA passed, output byte-identical)"
+  fi
+}
 
-if [ "${1:-}" = "--bless" ]; then
-  mkdir -p tests
-  cp "$out" tests/golden_report.txt
-  echo "golden re-blessed: tests/golden_report.txt"
-  exit 0
+out30="$(mktemp)"; outp="$(mktemp)"
+trap 'rm -f "$out30" "$outp"' EXIT
+mkdir -p tests
+
+./build/gen_fixture | ./build/netwerk > "$out30"
+check "synthetic 30x30" tests/golden_report.txt "$out30"
+
+if [ -f data/parcels_district.txt ]; then
+  ./build/netwerk < data/parcels_district.txt > "$outp"
+  check "parcel district" tests/golden_parcels_report.txt "$outp"
 fi
 
-diff -u tests/golden_report.txt "$out"
-echo "golden test: PASS (QA passed, output byte-identical)"
+exit $fail
