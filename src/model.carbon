@@ -102,16 +102,18 @@ fn FdhCost(idx: i32) -> i64 {
   return 250000;                    // 432-unit $2500
 }
 
-// OLT line cards: 8 / 16 PON ports; a chassis holds 16 card slots.
-fn OltCardSizeCount() -> i32 { return 2; }
+// OLT line cards: 4 / 8 / 16 PON ports; a chassis holds 16 card slots.
+fn OltCardSizeCount() -> i32 { return 3; }
 
 fn OltCardPorts(idx: i32) -> i32 {
-  if (idx == 0) { return 8; }
+  if (idx == 0) { return 4; }
+  if (idx == 1) { return 8; }
   return 16;
 }
 
 fn OltCardCost(idx: i32) -> i64 {
-  if (idx == 0) { return 70000; }   // 8-port card  $700
+  if (idx == 0) { return 40000; }   // 4-port card  $400
+  if (idx == 1) { return 70000; }   // 8-port card  $700
   return 120000;                    // 16-port card $1200
 }
 

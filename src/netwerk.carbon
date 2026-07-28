@@ -33,6 +33,7 @@ fn Run() -> i32 {
 
   SnapPremises(ref d);
   Cluster(ref d);
+  RebalanceClusters(ref d);  // pack serving areas so cabinets run full
   PlaceFdh(ref d);
   RouteDistribution(ref d);  // packs terminals per serving area as it goes
   MergeTerminals(ref d);     // utilization repair: dissolve/shrink terminals

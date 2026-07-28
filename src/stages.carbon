@@ -84,6 +84,14 @@ fn Ingest(ref d: Design) -> bool {
     if (surface != SurfaceSoft() and surface != SurfaceAsphalt()) {
       return IngestFail("unknown surface class");
     }
+    var j: i32 = 0;
+    while (j < i) {
+      if ((d.edge_from[j] == from and d.edge_to[j] == to) or
+          (d.edge_from[j] == to and d.edge_to[j] == from)) {
+        return IngestFail("duplicate edge between node pair");
+      }
+      ++j;
+    }
     d.edge_from[i] = from;
     d.edge_to[i] = to;
     d.edge_surface[i] = surface;
@@ -277,6 +285,69 @@ fn Cluster(ref d: Design) {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 3b — serving-area rebalance (pack cabinets to capacity)
+// ---------------------------------------------------------------------------
+
+// Balanced clustering spreads slack across every serving area, which
+// strands cabinet capacity (five areas at ~85% fill each need five full
+// cabinets). This pass concentrates the slack instead: boundary premises
+// move from the emptiest cluster into the fullest not-yet-full cluster —
+// nearest to the receiver's seed first — until at most one partial area
+// remains, which then gets a right-sized smaller cabinet. Because k is
+// the minimal cluster count, the tail can never drain to empty; the
+// last-premises guard is belt and braces.
+fn RebalanceClusters(ref d: Design) {
+  var guard: i32 = 0;
+  while (guard < d.prem_count) {
+    ++guard;
+    // Receiver: fullest cluster below capacity. Donor: emptiest cluster.
+    var recv: i32 = -1;
+    var recv_units: i32 = -1;
+    var donor: i32 = -1;
+    var donor_units: i32 = 2147483647;
+    var c: i32 = 0;
+    while (c < d.cluster_count) {
+      if (d.cluster_units[c] < MaxUnitsPerFdh() and
+          d.cluster_units[c] > recv_units) {
+        recv_units = d.cluster_units[c];
+        recv = c;
+      }
+      if (d.cluster_units[c] < donor_units) {
+        donor_units = d.cluster_units[c];
+        donor = c;
+      }
+      ++c;
+    }
+    if (recv == -1 or recv == donor or d.cluster_prems[donor] <= 1) {
+      break;
+    }
+    // Donor premises nearest to the receiver's seed that fits.
+    var best_p: i32 = -1;
+    var best_d: i32 = 2147483647;
+    var p: i32 = 0;
+    while (p < d.prem_count) {
+      if (d.prem_cluster[p] == donor and
+          d.cluster_units[recv] + d.prem_units[p] <= MaxUnitsPerFdh()) {
+        let dd: i32 = d.seed_dist[recv * 12288 + p];
+        if (dd < best_d) {
+          best_d = dd;
+          best_p = p;
+        }
+      }
+      ++p;
+    }
+    if (best_p == -1) {
+      break;
+    }
+    d.prem_cluster[best_p] = recv;
+    d.cluster_units[recv] += d.prem_units[best_p];
+    d.cluster_prems[recv] += 1;
+    d.cluster_units[donor] -= d.prem_units[best_p];
+    d.cluster_prems[donor] -= 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Stage 4 — FDH placement (facility location, per serving area)
 // ---------------------------------------------------------------------------
 
@@ -364,12 +435,21 @@ fn PackTerminals(ref d: Design, c: i32) {
   let max_ports: i32 = TerminalSize(TerminalSizeCount() - 1);
 
   // Depth-first node order over the cluster's tree via an explicit stack.
+  // The seen guard makes each node enter the walk exactly once even if the
+  // graph carried parallel edges (also rejected at ingest).
+  var seen: array(bool, 1024);
+  var si: i32 = 0;
+  while (si < d.node_count) {
+    seen[si] = false;
+    ++si;
+  }
   var node_order: array(i32, 1024);
   var order_count: i32 = 0;
   var stack: array(i32, 1024);
   var top: i32 = 0;
   stack[top] = d.fdh_node[c];
   ++top;
+  seen[d.fdh_node[c]] = true;
   while (top > 0) {
     --top;
     let n: i32 = stack[top];
@@ -380,7 +460,9 @@ fn PackTerminals(ref d: Design, c: i32) {
     var a: i32 = d.adj_head[n];
     while (a != -1) {
       let v: i32 = d.adj_to[a];
-      if (d.in_tree[v] and d.tree_parent_node[v] == n and top < 1024) {
+      if (d.in_tree[v] and d.tree_parent_node[v] == n and not seen[v] and
+          top < 1024) {
+        seen[v] = true;
         stack[top] = v;
         ++top;
       }
@@ -412,6 +494,7 @@ fn PackTerminals(ref d: Design, c: i32) {
     if (size > max_ports) {
       size = max_ports;
     }
+    var placed_batch: bool = false;
     while (size >= 1) {
       // Best covering node among the batch's snap nodes: minimize the
       // worst drop (ties: lower node id).
@@ -440,6 +523,7 @@ fn PackTerminals(ref d: Design, c: i32) {
         ++bi;
       }
       if (best_node != -1) {
+        placed_batch = true;
         if (d.term_count < MaxTerminals()) {
           let nt: i32 = d.term_count;
           ++d.term_count;
@@ -462,6 +546,13 @@ fn PackTerminals(ref d: Design, c: i32) {
         break;
       }
       --size;
+    }
+    if (not placed_batch) {
+      // Even a single-premises batch has no covering node within the
+      // max-drop rule (premises too far from any road node). Leave it
+      // unterminated — QA reports it as unserved — and move on rather
+      // than spinning on the same index forever.
+      ++i;
     }
   }
 }

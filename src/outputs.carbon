@@ -118,31 +118,45 @@ fn FdhCapacityInstalled(ref d: Design) -> i32 {
   return cap;
 }
 
-// OLT line cards: full 16-port cards, remainder on the smallest covering
-// card — same graduated-size rule as every other component.
-fn OltCards(ref d: Design, ref count_by_size: array(i32, 2)) -> i32 {
+// OLT line cards: full 16-port cards, then the remainder covered with the
+// minimum installed ports (rounded up to the 4-port granularity and filled
+// greedily from the largest card down) — the graduated-size rule again.
+fn OltCards(ref d: Design, ref count_by_size: array(i32, 3)) -> i32 {
   let splitters: i32 = TotalSplitters(ref d);
+  var i: i32 = 0;
+  while (i < OltCardSizeCount()) {
+    count_by_size[i] = 0;
+    ++i;
+  }
   let top: i32 = OltCardSizeCount() - 1;
   count_by_size[top] = splitters / OltCardPorts(top);
-  count_by_size[0] = 0;
   let rem: i32 = splitters % OltCardPorts(top);
   var cards: i32 = count_by_size[top];
   if (rem > 0) {
-    var idx: i32 = 0;
-    while (idx < top and OltCardPorts(idx) < rem) {
-      ++idx;
+    var need: i32 = CeilDiv(rem, OltCardPorts(0)) * OltCardPorts(0);
+    var idx: i32 = top;
+    while (need > 0) {
+      while (idx > 0 and OltCardPorts(idx) > need) {
+        --idx;
+      }
+      count_by_size[idx] += 1;
+      ++cards;
+      need -= OltCardPorts(idx);
     }
-    count_by_size[idx] += 1;
-    ++cards;
   }
   return cards;
 }
 
 fn OltPortsInstalled(ref d: Design) -> i32 {
-  var by_size: array(i32, 2);
+  var by_size: array(i32, 3);
   let card_total: i32 = OltCards(ref d, ref by_size);
-  return by_size[0] * OltCardPorts(0) + by_size[1] * OltCardPorts(1) +
-         card_total * 0;
+  var ports: i32 = card_total * 0;
+  var i: i32 = 0;
+  while (i < OltCardSizeCount()) {
+    ports += by_size[i] * OltCardPorts(i);
+    ++i;
+  }
+  return ports;
 }
 
 // ---------------------------------------------------------------------------
@@ -407,7 +421,7 @@ fn Report(ref d: Design) -> i64 {
   }
 
   let total_splitters: i32 = TotalSplitters(ref d);
-  var olt_by_size: array(i32, 2);
+  var olt_by_size: array(i32, 3);
   let olt_cards: i32 = OltCards(ref d, ref olt_by_size);
   let olt_chassis: i32 = CeilDiv(olt_cards, OltChassisCardSlots());
 
