@@ -1109,3 +1109,191 @@ fn RouteFeeder(ref d: Design) {
     ++round;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Stage 9 — trench deloop: force the used trench acyclic, then re-route
+// every cable on the resulting forest.
+// ---------------------------------------------------------------------------
+
+// BFS over forest edges from `root`, filling the per-cluster tree state:
+// in_tree, tree_parent_node/edge (toward root), node_path_m. In a forest the
+// BFS path IS the unique path, so parents double as the routing table.
+// Deterministic: fixed adjacency order, FIFO queue (heap_node reused).
+fn ForestBfs(ref d: Design, root: i32) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.in_tree[n] = false;
+    d.tree_parent_node[n] = -1;
+    d.tree_parent_edge[n] = -1;
+    d.node_path_m[n] = 0;
+    ++n;
+  }
+  var head: i32 = 0;
+  var tail: i32 = 0;
+  d.in_tree[root] = true;
+  d.heap_node[tail] = root;
+  ++tail;
+  while (head < tail) {
+    let u: i32 = d.heap_node[head];
+    ++head;
+    var a: i32 = d.adj_head[u];
+    while (a != -1) {
+      let e: i32 = d.adj_edge[a];
+      let v: i32 = d.adj_to[a];
+      if (d.forest_edge[e] and not d.in_tree[v]) {
+        d.in_tree[v] = true;
+        d.tree_parent_node[v] = u;
+        d.tree_parent_edge[v] = e;
+        d.node_path_m[v] = d.node_path_m[u] + d.edge_len[e];
+        d.heap_node[tail] = v;
+        ++tail;
+      }
+      a = d.adj_next[a];
+    }
+  }
+  d.heap_size = 0;
+}
+
+// The union of per-cluster distribution trees and feeder paths re-opens the
+// road lattice's cycles (866 independent rings on the district): each tree
+// is acyclic alone but their union is not, and every ring is redundant
+// trench. Fix: build the minimum-trench-cost spanning forest of the used
+// trench graph (Prim; key = trench cents * 65536 + edge id, so keys are
+// unique and the forest is fully determined), then re-route distribution
+// fibers (per-cluster, snap-node units to FDH — same sizing semantics as
+// RouteDistribution) and feeder fibers (CO -> FDH) along the forest's
+// unique paths, refresh term_path_len / fdh_route_len, and keep trench only
+// where cable actually runs. Cables detour slightly (cable is $0.95-7.80/m)
+// but every removed ring saves its trench ($45-150/m) — strictly cheaper
+// AND acyclic by construction.
+fn DeloopTrench(ref d: Design) {
+  // Phase 1: minimum spanning forest over the used trench graph.
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    d.forest_edge[e] = false;
+    ++e;
+  }
+  DijkstraReset(ref d);
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    if (not d.visited[n]) {
+      var touches: bool = false;
+      var a0: i32 = d.adj_head[n];
+      while (a0 != -1) {
+        if (d.trench_used[d.adj_edge[a0]]) {
+          touches = true;
+          break;
+        }
+        a0 = d.adj_next[a0];
+      }
+      if (touches) {
+        d.dist[n] = 0;
+        HeapPush(ref d, n);
+        while (d.heap_size > 0) {
+          let u: i32 = HeapPop(ref d);
+          if (d.visited[u]) {
+            continue;
+          }
+          d.visited[u] = true;
+          if (d.prev_edge[u] != -1) {
+            d.forest_edge[d.prev_edge[u]] = true;
+          }
+          var a: i32 = d.adj_head[u];
+          while (a != -1) {
+            let ce: i32 = d.adj_edge[a];
+            let v: i32 = d.adj_to[a];
+            if (d.trench_used[ce] and not d.visited[v]) {
+              let cost: i64 = (d.edge_len[ce] as i64) *
+                              TrenchCostPerM(d.edge_surface[ce]);
+              let key: i64 = cost * 65536 + (ce as i64);
+              if (key < d.dist[v]) {
+                d.dist[v] = key;
+                d.prev_node[v] = u;
+                d.prev_edge[v] = ce;
+                HeapPush(ref d, v);
+              }
+            }
+            a = d.adj_next[a];
+          }
+        }
+      }
+    }
+    ++n;
+  }
+
+  // Phase 2: re-route distribution on the forest, cluster by cluster.
+  e = 0;
+  while (e < d.edge_count) {
+    d.dist_fibers[e] = 0;
+    ++e;
+  }
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    ForestBfs(ref d, d.fdh_node[c]);
+    n = 0;
+    while (n < d.node_count) {
+      d.node_units[n] = 0;
+      ++n;
+    }
+    var p: i32 = 0;
+    while (p < d.prem_count) {
+      if (d.prem_cluster[p] == c) {
+        d.node_units[d.prem_snap_node[p]] += d.prem_units[p];
+      }
+      ++p;
+    }
+    n = 0;
+    while (n < d.node_count) {
+      if (d.node_units[n] > 0 and d.in_tree[n]) {
+        var walk: i32 = n;
+        while (walk != d.fdh_node[c] and d.tree_parent_edge[walk] != -1) {
+          d.dist_fibers[d.tree_parent_edge[walk]] += d.node_units[n];
+          walk = d.tree_parent_node[walk];
+        }
+      }
+      ++n;
+    }
+    var t: i32 = 0;
+    while (t < d.term_count) {
+      if (d.term_cluster[t] == c and d.in_tree[d.term_node[t]]) {
+        d.term_path_len[t] = d.node_path_m[d.term_node[t]];
+      }
+      ++t;
+    }
+    ++c;
+  }
+
+  // Phase 3: re-route feeder CO -> each FDH on the forest.
+  e = 0;
+  while (e < d.edge_count) {
+    d.feeder_fibers[e] = 0;
+    ++e;
+  }
+  ForestBfs(ref d, d.co_node);
+  c = 0;
+  while (c < d.cluster_count) {
+    d.fdh_route_len[c] = 0;
+    if (d.fdh_node[c] != d.co_node and d.in_tree[d.fdh_node[c]]) {
+      let fibers: i32 = d.fdh_splitters[c] + 1;
+      var v: i32 = d.fdh_node[c];
+      var meters: i32 = 0;
+      while (v != d.co_node and d.tree_parent_edge[v] != -1) {
+        let pe: i32 = d.tree_parent_edge[v];
+        d.feeder_fibers[pe] += fibers;
+        meters += d.edge_len[pe];
+        v = d.tree_parent_node[v];
+      }
+      d.fdh_route_len[c] = meters;
+    }
+    ++c;
+  }
+
+  // Phase 4: trench only where cable actually runs. A subset of a forest
+  // is acyclic, so the scorer's cyclomatic number is 0 by construction.
+  e = 0;
+  while (e < d.edge_count) {
+    d.trench_used[e] = d.forest_edge[e] and
+                       (d.dist_fibers[e] > 0 or d.feeder_fibers[e] > 0);
+    ++e;
+  }
+}

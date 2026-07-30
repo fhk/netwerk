@@ -34,6 +34,7 @@ fn Run() -> i32 {
   ProvisionSplitters(ref d);
   SelectCo(ref d);
   RouteFeeder(ref d);
+  DeloopTrench(ref d);
 
   PrintGeometry(ref d);
   return 0;

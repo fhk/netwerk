@@ -40,6 +40,7 @@ fn Run() -> i32 {
   ProvisionSplitters(ref d);
   SelectCo(ref d);
   RouteFeeder(ref d);
+  DeloopTrench(ref d);       // acyclic used trench: re-route cables on the MSF
 
   var total: i64 = Report(ref d);
   if (total <= 0) {

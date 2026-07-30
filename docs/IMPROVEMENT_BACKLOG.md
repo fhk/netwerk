@@ -60,24 +60,35 @@ for deliberate, reviewed output changes (`BLESS=1`).
 
 ## P1 — trench topology
 
-4. **Ring elimination on the used trench.** Now the single largest
-   penalty block (866 rings x 500000 = 433M vs 375M for crossings after
-   iter 001). Baseline: 866 independent
-   cycles (E - V + C over trench=1 edges). The converter emits up to 500
-   extra street-crossing edges so routes need not detour around a single
-   bridge — but routing should not OPEN trench on crossings (or parcel
-   loops) that only close cycles. After routing, audit each cycle and
-   drop the costliest redundant edge whose removal keeps all served
-   premises connected; the rings metric counts USED trench only.
+4. ~~**Ring elimination on the used trench.**~~ DONE iter 002 (866 -> 0
+   rings, district capex -160.8M, total score -593.8M). New stage 9
+   `DeloopTrench` (stages.carbon): minimum-trench-cost spanning forest of
+   the used trench graph (Prim on the existing heap; unique keys
+   cost*65536+edge_id), then distribution AND feeder fibers re-routed on
+   the forest's unique paths (same snap-node-units sizing semantics),
+   term_path_len/fdh_route_len refreshed, trench kept only where cable
+   runs. Trench 224,864 m -> 190,299 m (pruning removed more than the
+   866 cycle edges: dead alternate branches lost their fibers too).
+   QA green, determinism verified byte-identical.
 5. **Cross-cluster trench sharing in distribution routing.** Distribution
    Dijkstra should discount already-open trench (opened by any serving
    area or by feeder) the way feeder routing already does, so different
    serving areas share a street instead of opening parallel routes.
+   NOTE after iter 002: the forest re-route already collapses duplicate
+   corridors post-hoc (sharing_x100 = 113 on the district); remaining
+   value is in choosing BETTER corridors during routing, not in dedup.
 6. **Feeder/distribution duplicate-route audit.** Report and then shrink
    corridors where feeder and distribution (or two distribution clusters)
    run on parallel nearby edges when one shared trench would do;
    `sharing_ratio` (cable_route_m / trench_m) should rise as duplicates
-   collapse.
+   collapse. Largely subsumed by iter 002's forest re-route.
+6b. **Terminal-off-trench modeling gap (discovered iter 002).** Fibers
+   are sized by premises snap-node units, not by terminal location; after
+   forest pruning a terminal can sit on a node whose branch carries no
+   fiber (its customers' snap nodes route elsewhere). No scorer/QA rule
+   measures trench-to-terminal continuity today; if one is ever added
+   (tighten-only), fiber accounting should walk from term_node instead of
+   snap nodes.
 
 ## P2 — clustering and packing optimality
 

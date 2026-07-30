@@ -245,6 +245,8 @@ class Design {
   var dist_fibers: array(i32, 49152);
   var feeder_fibers: array(i32, 49152);
   var trench_used: array(bool, 49152);
+  // Spanning-forest membership of the used trench (stage 9, DeloopTrench).
+  var forest_edge: array(bool, 49152);
 
   // --- distribution-tree working state (reset per serving area) ---
   var in_tree: array(bool, 16384);
