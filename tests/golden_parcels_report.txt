@@ -1,5 +1,5 @@
 design:
-  premises=6719 units=6719 serving_areas=16 terminals=1909
+  premises=6719 units=6719 serving_areas=16 terminals=2151
   co_node=4472 olt_chassis=1 olt_cards=10 pon_ports_used=140
   area 0: fdh_node=776 premises=432 units=432 cabinet=432 splitters=9 feeder_m=4298
   area 1: fdh_node=15443 premises=239 units=239 cabinet=288 splitters=5 feeder_m=7679
@@ -18,7 +18,7 @@ design:
   area 14: fdh_node=13771 premises=432 units=432 cabinet=432 splitters=9 feeder_m=5322
   area 15: fdh_node=12426 premises=432 units=432 cabinet=432 splitters=9 feeder_m=4848
 utilization:
-  terminal_ports: 6719/6798 = 98.8%
+  terminal_ports: 6719/6790 = 98.9%
   splitter_ports: 4371/4480 = 97.5%
   fdh_capacity: 6719/6768 = 99.2%
   olt_card_ports: 140/140 = 100.0%
@@ -36,23 +36,22 @@ bom:
   feeder_cable_48f qty=4796 m unit=$2.10 ext=$10071.60
   feeder_cable_96f qty=1915 m unit=$3.40 ext=$6511.00
   feeder_cable_288f qty=176 m unit=$7.80 ext=$1372.80
-  drop_cable qty=251081 m unit=$1.50 ext=$376621.50
+  drop_cable qty=213904 m unit=$1.50 ext=$320856.00
   drop_assembly qty=6719 ea unit=$120.00 ext=$806280.00
   fdh_cabinet_288 qty=1 ea unit=$1800.00 ext=$1800.00
   fdh_cabinet_432 qty=15 ea unit=$2500.00 ext=$37500.00
   splitter_1_32 qty=140 ea unit=$180.00 ext=$25200.00
-  terminal_2p qty=787 ea unit=$80.00 ext=$62960.00
-  terminal_4p qty=857 ea unit=$120.00 ext=$102840.00
-  terminal_6p qty=188 ea unit=$150.00 ext=$28200.00
-  terminal_8p qty=64 ea unit=$180.00 ext=$11520.00
-  terminal_12p qty=13 ea unit=$250.00 ext=$3250.00
+  terminal_2p qty=1048 ea unit=$80.00 ext=$83840.00
+  terminal_4p qty=970 ea unit=$120.00 ext=$116400.00
+  terminal_6p qty=125 ea unit=$150.00 ext=$18750.00
+  terminal_8p qty=8 ea unit=$180.00 ext=$1440.00
   olt_card_4p qty=1 ea unit=$400.00 ext=$400.00
   olt_card_8p qty=1 ea unit=$700.00 ext=$700.00
   olt_card_16p qty=8 ea unit=$1200.00 ext=$9600.00
   olt_port_optics qty=140 ea unit=$85.00 ext=$11900.00
 cost:
-  total_capex=$11214511.10
-  per_unit_passed=$1669.07
+  total_capex=$11170405.60
+  per_unit_passed=$1662.51
   trench_m=190299 cable_route_m=215767 sharing_x100=113
 qa:
   premises_served: ok
@@ -62,7 +61,7 @@ qa:
   splitter_capacity: ok
   route_length_budget: ok
   feeder_routed: ok
-  util_terminal_ports: 98.8% ok
+  util_terminal_ports: 98.9% ok
   util_splitter_ports: 97.5% ok
   util_fdh_capacity: 99.2% ok
   util_olt_card_ports: 100.0% ok

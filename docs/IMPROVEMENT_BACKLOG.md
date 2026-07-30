@@ -32,31 +32,39 @@ for deliberate, reviewed output changes (`BLESS=1`).
    cheapest wins. MergeTerminals target-ranking is crossing-aware too.
    MaxTerminals raised 2048 -> 4096 (the cap silently unserved 41
    premises -> QA caught it).
-1b. **Batch composition is now the binding constraint on the remaining
-   7,498 crossings AND the 828 under-4 terminals.** Batches are
-   consecutive runs of the distribution-tree DFS order, which interleaves
-   opposite lot rows and jumps across intersections, so packing often
-   faces "12 with many crossings vs 2 with none" and the priced choice
-   splinters into 2-ports (terminals_under_4 rose 310 -> 828, +52M).
-   Fix candidates, in order of expected value: (a) DP over the DFS order
-   (item 8) with the iter-001 batch cost — optimal consecutive partition
-   instead of greedy; (b) order premises within a node run by lot-row
-   side so runs stop interleaving; (c) post-pack premises<->terminal swap
-   pass reusing CountDropCrossings.
-2. **Terminal min-size 4 rule — retire 2-port strays.** 828 under-4
-   terminals after iter 001 (was 310). MergeTerminals cannot consolidate
-   them: neighbors are exactly-full 4/4s with no spare ports under their
-   chosen size. Needs swap-based repacking (move a member out of a full
-   terminal to make room for a stray's 2) or the item-1b DP, which
-   sizes batches 4+ whenever geometry allows.
+1b. ~~**Batch composition (greedy splintering).**~~ DONE iter 003 via
+   candidate (a): `PackTerminals` now runs an exact DP (shortest path
+   over DFS positions, arcs = catalog-size batches + 1-premises fallback
+   + priced skip) minimizing the SUM of scorer-priced batch costs
+   (50000/crossing + hardware + 100000 under-4 + $1.50/m drop cable).
+   District: crossings 7,498 -> 5,422, drop-drop 1,856 -> 1,300, capex
+   -4.4M, district score -94.5M; every scenario improved or held.
+   NOTE: terminals_under_4 ROSE 828 -> 1,076 — the DP deliberately buys
+   a 2-port (+100k) whenever it avoids >=2 street crossings. Remaining
+   levers on crossings are candidates (b)/(c) below.
+1c. **DFS-order interleaving is still the constraint** (was candidate
+   (b)): batches are consecutive runs of the distribution-tree DFS
+   order, which interleaves opposite lot rows and jumps across
+   intersections, so even the optimal partition pays crossings the
+   ORDER forces. Order premises within a node run by lot-row side (e.g.
+   sort by side of the frontage edge, then along it) so runs stop
+   interleaving; the DP then partitions a cleaner sequence. Evidence:
+   5,422 crossings remain with an optimal partition, so ~all of them
+   are order-forced or geometry-forced.
+2. **Terminal min-size 4 rule — retire 2-port strays.** 1,076 under-4
+   terminals after iter 003 (deliberate DP trades: 2-port vs >=2
+   crossings). A post-pack premises<->terminal swap pass (candidate (c),
+   reusing CountDropCrossings) could dissolve strays without re-adding
+   crossings where geometry allows; MergeTerminals alone cannot —
+   neighbors close exactly full.
 3. **Drop 2-opt / local-search reassignment to uncross drops.** Down to
-   1,856 drop-drop crossings after iter 001 (was 6,154) as a free
-   side-effect of shorter drops (mean 59.5 m -> 37.4 m). When two drops
-   properly cross, swapping their terminal assignments never lengthens
-   the total by more than the crossing detour; iterate pairwise swaps
-   (grid-hashed candidates, deterministic order) until fixpoint,
-   respecting port capacity and the 150 m rule. ProperCross/the edge
-   grid from iter 001 are reusable here.
+   1,300 drop-drop crossings after iter 003 (6,154 -> 1,856 -> 1,300)
+   as a free side-effect of shorter/cleaner drops (mean 31.8 m). When
+   two drops properly cross, swapping their terminal assignments never
+   lengthens the total by more than the crossing detour; iterate
+   pairwise swaps (grid-hashed candidates, deterministic order) until
+   fixpoint, respecting port capacity and the 150 m rule. ProperCross/
+   the edge grid from iter 001 are reusable here.
 
 ## P1 — trench topology
 
@@ -96,11 +104,12 @@ for deliberate, reviewed output changes (`BLESS=1`).
    greedy seeding, hill-climb: move a boundary premises to the adjacent
    area (or swap two) when it reduces total graph distance without
    breaking FDH capacity; deterministic scan order, fixpoint-bounded.
-8. **Exact terminal packing per serving area (DP over the DFS order).**
-   Premises arrive tree-ordered along the distribution DFS; optimal
-   partition into runs of 4..12 with a placement-cost term is a small
-   shortest-path DP over that order — replaces the greedy batch split and
-   guarantees no under/oversized terminal where feasible.
+8. ~~**Exact terminal packing per serving area (DP over the DFS order).**~~
+   DONE iter 003 (see item 1b): shortest-path DP over DFS positions with
+   scorer-priced batch arcs replaced the greedy batch split. District
+   runtime 15 s -> 24 s (the DP evaluates every start position instead of
+   ~1/7th of them); fine for now, and the batch-cost table is the natural
+   place to bolt on smarter candidate node ranking later.
 
 ## P3 — harness and tuning
 

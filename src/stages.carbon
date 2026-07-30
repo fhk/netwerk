@@ -525,56 +525,42 @@ fn PackTerminals(ref d: Design, c: i32) {
     ++oi;
   }
 
-  // Cut into batches. The road graph is a lattice of lot lines, so a drop
-  // crosses roughly one boundary per lot it passes — a k-customer terminal
-  // carries ~k^2/4 unavoidable crossings however it is sited. Batch size
-  // is therefore a priced decision, not "largest feasible": every catalog
-  // size is scored with its best candidate node and the one minimizing
-  // per-customer cost wins, where cost mirrors the design scorer —
-  // 50000 per crossing, 100000 for an under-4 terminal, plus hardware.
+  // Cut into batches — optimal consecutive partition (DP) over the DFS
+  // order. The iter-001 greedy priced each batch in isolation (best
+  // per-customer cost at the current start), which splintered awkward DFS
+  // runs into 2-ports: it could not see that taking 6 now makes a clean 8
+  // possible next. The DP minimizes the SUM of scorer-priced batch costs
+  // over the whole serving area: 50000 per drop street crossing, terminal
+  // hardware, 100000 for an under-4 terminal, plus drop cable at the
+  // chosen node ($1.50/m — real capex that varies with the partition).
+  // Drop assemblies ($120 each, one per premises regardless of partition)
+  // are constant and left out. Slot layout per start position: slots
+  // 0..TerminalSizeCount()-1 = catalog sizes, last slot = the 1-premises
+  // fallback batch (kept so a DFS-order jump that makes every catalog
+  // size infeasible still leaves the premises served).
+  let inf: i64 = 4611686018427387904;
+  var bc_cost: array(i64, 3072);  // [pos * 6 + slot], 512 x 6
+  var bc_node: array(i32, 3072);
   var i: i32 = 0;
   while (i < m) {
-    var size_cap: i32 = m - i;
-    if (size_cap > max_ports) {
-      size_cap = max_ports;
-    }
-    // Candidate batch sizes: catalog sizes that fit, largest first (ties
-    // in per-customer cost keep the first, i.e. larger, size); a lone
-    // 1-premises tail when even the smallest catalog size does not fit.
-    var try_sizes: array(i32, 6);
-    var try_count: i32 = 0;
-    var siz: i32 = TerminalSizeCount() - 1;
-    while (siz >= 0) {
-      if (TerminalSize(siz) <= size_cap) {
-        try_sizes[try_count] = TerminalSize(siz);
-        ++try_count;
+    var slot: i32 = 0;
+    while (slot < 6) {
+      bc_cost[i * 6 + slot] = inf;
+      bc_node[i * 6 + slot] = -1;
+      var size: i32 = 1;
+      if (slot < TerminalSizeCount()) {
+        size = TerminalSize(slot);
       }
-      --siz;
-    }
-    if (try_count == 0) {
-      try_sizes[0] = size_cap;
-      try_count = 1;
-    }
-    // Last-resort single-premises batch, so a DFS-order jump that makes
-    // every catalog size infeasible still leaves the premises served.
-    if (try_sizes[try_count - 1] > 1) {
-      try_sizes[try_count] = 1;
-      ++try_count;
-    }
-
-    var pick_size: i32 = -1;
-    var pick_node: i32 = -1;
-    var pick_cost: i64 = 0;
-    var tsi: i32 = 0;
-    while (tsi < try_count) {
-      let size: i32 = try_sizes[tsi];
-      ++tsi;
+      if (i + size > m or size > max_ports) {
+        ++slot;
+        continue;
+      }
       // Best covering tree node for the batch: fewest drop street
       // crossings first (the scorer's exact predicate), then the smallest
-      // worst drop (ties: lower node id). Feasibility is still purely the
-      // max-drop rule; every member's snap node is on the tree, so any
-      // batch feasible under the old member-snap candidate set stays
-      // feasible here.
+      // worst drop (ties: lower node id). Feasibility is purely the
+      // max-drop rule; every member's snap node is on the tree, so a
+      // 1-premises batch is always feasible when its snap node is in
+      // drop reach.
       //
       // The batch bounding box inflated by the drop rule bounds every
       // feasible candidate — a cheap prefilter before exact distances.
@@ -599,6 +585,7 @@ fn PackTerminals(ref d: Design, c: i32) {
       var best_node: i32 = -1;
       var best_cross: i32 = 2147483647;
       var best_maxd: i32 = 2147483647;
+      var best_sumd: i32 = 0;
       var ci2: i32 = 0;
       while (ci2 < tree_node_count) {
         let cn: i32 = tree_nodes[ci2];
@@ -608,11 +595,13 @@ fn PackTerminals(ref d: Design, c: i32) {
           continue;
         }
         var maxd: i32 = 0;
+        var sumd: i32 = 0;
         var bj: i32 = 0;
         while (bj < size) {
           let pj: i32 = ordered[i + bj];
           let dd: i32 = DistM(d.prem_x[pj], d.prem_y[pj],
                               d.node_x[cn], d.node_y[cn]);
+          sumd += dd;
           if (dd > maxd) {
             maxd = dd;
             if (maxd > MaxDropM()) {
@@ -639,58 +628,117 @@ fn PackTerminals(ref d: Design, c: i32) {
               (maxd == best_maxd and cn < best_node)))) {
           best_cross = xc;
           best_maxd = maxd;
+          best_sumd = sumd;
           best_node = cn;
         }
       }
       if (best_node != -1) {
-        // Per-customer cost of closing this batch at this size, mirroring
-        // the scorer's penalty prices. Compared exactly across sizes via
-        // cross-multiplication (cost_a/size_a < cost_b/size_b).
         var cidx: i32 = 0;
         while (cidx < TerminalSizeCount() - 1 and TerminalSize(cidx) < size) {
           ++cidx;
         }
-        var cost: i64 = 50000 * (best_cross as i64) + TerminalCost(cidx);
+        var cost: i64 = 50000 * (best_cross as i64) + TerminalCost(cidx) +
+                        DropCablePerM() * (best_sumd as i64);
         if (size < TerminalSize(1)) {
           cost += 100000;
         }
-        if (pick_size == -1 or
-            cost * (pick_size as i64) < pick_cost * (size as i64)) {
-          pick_size = size;
-          pick_node = best_node;
-          pick_cost = cost;
+        bc_cost[i * 6 + slot] = cost;
+        bc_node[i * 6 + slot] = best_node;
+      }
+      ++slot;
+    }
+    ++i;
+  }
+
+  // Shortest path over positions 0..m. dp[j] = min cost to pack
+  // ordered[0..j). Relaxation order — i ascending, then slots, then the
+  // skip arc — with strict '<' updates makes ties deterministic and
+  // prefers the LARGER batch (the transition from the smaller i wins).
+  // The skip arc (leave the premises unterminated; QA reports it) is
+  // priced at the scorer's QA penalty and only ever fires when even the
+  // 1-premises batch has no covering node within the drop rule.
+  var dp: array(i64, 513);
+  var dp_from: array(i32, 513);
+  var dp_slot: array(i32, 513);  // slot taken to arrive here; -2 = skip
+  var j: i32 = 0;
+  while (j <= m) {
+    dp[j] = inf;
+    dp_from[j] = -1;
+    dp_slot[j] = -1;
+    ++j;
+  }
+  dp[0] = 0;
+  i = 0;
+  while (i < m) {
+    if (dp[i] < inf) {
+      var slot2: i32 = 0;
+      while (slot2 < 6) {
+        var size2: i32 = 1;
+        if (slot2 < TerminalSizeCount()) {
+          size2 = TerminalSize(slot2);
         }
+        if (i + size2 <= m and bc_cost[i * 6 + slot2] < inf) {
+          let cand: i64 = dp[i] + bc_cost[i * 6 + slot2];
+          if (cand < dp[i + size2]) {
+            dp[i + size2] = cand;
+            dp_from[i + size2] = i;
+            dp_slot[i + size2] = slot2;
+          }
+        }
+        ++slot2;
+      }
+      let skip_cand: i64 = dp[i] + 1000000;
+      if (skip_cand < dp[i + 1]) {
+        dp[i + 1] = skip_cand;
+        dp_from[i + 1] = i;
+        dp_slot[i + 1] = -2;
       }
     }
-    if (pick_size != -1) {
-      // Batch sizes are catalog sizes (or a lone tail), so the terminal
-      // closes exactly full — no rounding step needed.
-      let take: i32 = pick_size;
-      if (d.term_count < MaxTerminals()) {
-        let nt: i32 = d.term_count;
-        ++d.term_count;
-        d.term_node[nt] = pick_node;
-        d.term_cluster[nt] = c;
-        d.term_ports_used[nt] = take;
-        d.term_path_len[nt] = d.node_path_m[pick_node];
-        var bk: i32 = 0;
-        while (bk < take) {
-          let pk: i32 = ordered[i + bk];
-          d.prem_terminal[pk] = nt;
-          d.prem_drop_len[pk] = DistM(d.prem_x[pk], d.prem_y[pk],
-                                      d.node_x[pick_node],
-                                      d.node_y[pick_node]);
-          ++bk;
-        }
-        CloseTerminal(ref d, nt);
+    ++i;
+  }
+
+  // Reconstruct, then commit in forward DFS order so terminal ids stay
+  // ordered along the tree (deterministic, diff-friendly).
+  var rb_start: array(i32, 512);
+  var rb_slot: array(i32, 512);
+  var rb_count: i32 = 0;
+  var wj: i32 = m;
+  while (wj > 0 and dp_from[wj] >= 0 and rb_count < 512) {
+    rb_start[rb_count] = dp_from[wj];
+    rb_slot[rb_count] = dp_slot[wj];
+    ++rb_count;
+    wj = dp_from[wj];
+  }
+  var bi: i32 = rb_count - 1;
+  while (bi >= 0) {
+    let st: i32 = rb_start[bi];
+    let sl: i32 = rb_slot[bi];
+    --bi;
+    if (sl == -2) {
+      continue;  // unserved premises; QA reports it
+    }
+    var take: i32 = 1;
+    if (sl < TerminalSizeCount()) {
+      take = TerminalSize(sl);
+    }
+    if (d.term_count < MaxTerminals()) {
+      let pick_node: i32 = bc_node[st * 6 + sl];
+      let nt: i32 = d.term_count;
+      ++d.term_count;
+      d.term_node[nt] = pick_node;
+      d.term_cluster[nt] = c;
+      d.term_ports_used[nt] = take;
+      d.term_path_len[nt] = d.node_path_m[pick_node];
+      var bk: i32 = 0;
+      while (bk < take) {
+        let pk: i32 = ordered[st + bk];
+        d.prem_terminal[pk] = nt;
+        d.prem_drop_len[pk] = DistM(d.prem_x[pk], d.prem_y[pk],
+                                    d.node_x[pick_node],
+                                    d.node_y[pick_node]);
+        ++bk;
       }
-      i += take;
-    } else {
-      // Even a single-premises batch has no covering node within the
-      // max-drop rule (premises too far from any road node). Leave it
-      // unterminated — QA reports it as unserved — and move on rather
-      // than spinning on the same index forever.
-      ++i;
+      CloseTerminal(ref d, nt);
     }
   }
 }
