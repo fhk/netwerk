@@ -1212,71 +1212,106 @@ fn ForestBfs(ref d: Design, root: i32) {
   d.heap_size = 0;
 }
 
-// The union of per-cluster distribution trees and feeder paths re-opens the
-// road lattice's cycles (866 independent rings on the district): each tree
-// is acyclic alone but their union is not, and every ring is redundant
-// trench. Fix: build the minimum-trench-cost spanning forest of the used
-// trench graph (Prim; key = trench cents * 65536 + edge id, so keys are
-// unique and the forest is fully determined), then re-route distribution
-// fibers (per-cluster, terminal-node units to FDH — same sizing semantics as
-// RouteDistribution) and feeder fibers (CO -> FDH) along the forest's
-// unique paths, refresh term_path_len / fdh_route_len, and keep trench only
-// where cable actually runs. Cables detour slightly (cable is $0.95-7.80/m)
-// but every removed ring saves its trench ($45-150/m) — strictly cheaper
-// AND acyclic by construction.
+// The union of per-cluster distribution trees and feeder paths chooses its
+// corridors independently, so the used trench both re-opened the road
+// lattice's cycles AND paid for corridors a global view would never open.
+// Fix: build one global Steiner tree (shortest-path heuristic) over the
+// FULL road graph — required nodes are the CO, every FDH, and every live
+// terminal node — then re-route distribution fibers (per-cluster,
+// terminal-node units to FDH, same sizing semantics as RouteDistribution)
+// and feeder fibers (CO -> FDH) along the tree's unique paths, refresh
+// term_path_len / fdh_route_len, and keep trench only where cable actually
+// runs. Cables detour slightly (cable is $0.95-7.80/m) but every corridor
+// dropped saves its trench ($45-150/m); a subset of a tree is acyclic, so
+// rings stay 0 by construction. Vs the old spanning forest restricted to
+// already-open trench, the global tree cut district trench
+// 134,276 m -> ~123,700 m (~-$0.5M) with the worst CO->premises route at
+// 18,060 m of the 20,000 m optical budget.
 fn DeloopTrench(ref d: Design) {
-  // Phase 1: minimum spanning forest over the used trench graph.
+  // Phase 1: global Steiner tree via incremental multi-source Dijkstra in
+  // trench cents. Tree nodes are 0-cost sources and tree edges relax at 0,
+  // so each required node connects by the cheapest path to the CURRENT
+  // tree. Required markers live in node_units (phase 2 resets it); the
+  // in_tree flags are rebuilt by ForestBfs afterwards. Everything is
+  // sequential with a deterministic heap, so the tree is fully determined.
   var e: i32 = 0;
   while (e < d.edge_count) {
     d.forest_edge[e] = false;
     ++e;
   }
-  DijkstraReset(ref d);
   var n: i32 = 0;
   while (n < d.node_count) {
-    if (not d.visited[n]) {
-      var touches: bool = false;
-      var a0: i32 = d.adj_head[n];
-      while (a0 != -1) {
-        if (d.trench_used[d.adj_edge[a0]]) {
-          touches = true;
-          break;
-        }
-        a0 = d.adj_next[a0];
-      }
-      if (touches) {
-        d.dist[n] = 0;
-        HeapPush(ref d, n);
-        while (d.heap_size > 0) {
-          let u: i32 = HeapPop(ref d);
-          if (d.visited[u]) {
-            continue;
-          }
-          d.visited[u] = true;
-          if (d.prev_edge[u] != -1) {
-            d.forest_edge[d.prev_edge[u]] = true;
-          }
-          var a: i32 = d.adj_head[u];
-          while (a != -1) {
-            let ce: i32 = d.adj_edge[a];
-            let v: i32 = d.adj_to[a];
-            if (d.trench_used[ce] and not d.visited[v]) {
-              let cost: i64 = (d.edge_len[ce] as i64) *
-                              TrenchCostPerM(d.edge_surface[ce]);
-              let key: i64 = cost * 65536 + (ce as i64);
-              if (key < d.dist[v]) {
-                d.dist[v] = key;
-                d.prev_node[v] = u;
-                d.prev_edge[v] = ce;
-                HeapPush(ref d, v);
-              }
-            }
-            a = d.adj_next[a];
-          }
-        }
+    d.node_units[n] = 0;
+    d.in_tree[n] = false;
+    ++n;
+  }
+  var remaining: i32 = 0;
+  var p1: i32 = 0;
+  while (p1 < d.prem_count) {
+    if (d.prem_terminal[p1] != -1) {
+      let tn: i32 = d.term_node[d.prem_terminal[p1]];
+      if (d.node_units[tn] == 0) {
+        d.node_units[tn] = 1;
+        ++remaining;
       }
     }
-    ++n;
+    ++p1;
+  }
+  var c1: i32 = 0;
+  while (c1 < d.cluster_count) {
+    let fnode: i32 = d.fdh_node[c1];
+    if (d.node_units[fnode] == 0) {
+      d.node_units[fnode] = 1;
+      ++remaining;
+    }
+    ++c1;
+  }
+  if (d.node_units[d.co_node] == 0) {
+    d.node_units[d.co_node] = 1;
+    ++remaining;
+  }
+  DijkstraReset(ref d);
+  d.in_tree[d.co_node] = true;
+  d.node_units[d.co_node] = 0;
+  --remaining;
+  AddSource(ref d, d.co_node);
+  while (remaining > 0 and d.heap_size > 0) {
+    let u: i32 = HeapPop(ref d);
+    if (d.node_units[u] == 1 and not d.in_tree[u]) {
+      // Connect u: walk the prev chain back to the tree. Chain dists are
+      // strictly decreasing and only tree nodes have dist 0, so the walk
+      // terminates on the tree. Every new node becomes a 0-cost source.
+      var w: i32 = u;
+      while (not d.in_tree[w]) {
+        d.forest_edge[d.prev_edge[w]] = true;
+        d.in_tree[w] = true;
+        if (d.node_units[w] == 1) {
+          d.node_units[w] = 0;
+          --remaining;
+        }
+        d.dist[w] = 0;
+        HeapPush(ref d, w);
+        w = d.prev_node[w];
+      }
+      continue;
+    }
+    var a: i32 = d.adj_head[u];
+    while (a != -1) {
+      let ce: i32 = d.adj_edge[a];
+      let v: i32 = d.adj_to[a];
+      var wgt: i64 = 0;
+      if (not d.forest_edge[ce]) {
+        wgt = (d.edge_len[ce] as i64) * TrenchCostPerM(d.edge_surface[ce]);
+      }
+      let ndist: i64 = d.dist[u] + wgt;
+      if (ndist < d.dist[v]) {
+        d.dist[v] = ndist;
+        d.prev_node[v] = u;
+        d.prev_edge[v] = ce;
+        HeapPush(ref d, v);
+      }
+      a = d.adj_next[a];
+    }
   }
 
   // Phase 2: re-route distribution on the forest, cluster by cluster.

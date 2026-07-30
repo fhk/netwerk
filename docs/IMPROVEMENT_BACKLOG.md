@@ -91,18 +91,32 @@ for deliberate, reviewed output changes (`BLESS=1`).
    runs. Trench 224,864 m -> 190,299 m (pruning removed more than the
    866 cycle edges: dead alternate branches lost their fibers too).
    QA green, determinism verified byte-identical.
-5. **Cross-cluster trench sharing in distribution routing.** Distribution
-   Dijkstra should discount already-open trench (opened by any serving
-   area or by feeder) the way feeder routing already does, so different
-   serving areas share a street instead of opening parallel routes.
-   NOTE after iter 002: the forest re-route already collapses duplicate
-   corridors post-hoc (sharing_x100 = 113 on the district); remaining
-   value is in choosing BETTER corridors during routing, not in dedup.
+5. ~~**Cross-cluster trench sharing in distribution routing.**~~ DONE
+   iter 005, implemented globally rather than per-Dijkstra: DeloopTrench
+   phase 1 now builds ONE Steiner tree (shortest-path heuristic,
+   incremental multi-source Dijkstra in trench cents; tree nodes are
+   0-cost sources, tree edges relax at 0) over the FULL road graph with
+   required = CO + FDHs + live terminal nodes, replacing the spanning
+   forest that was restricted to already-opened trench. District trench
+   134,276 m -> 123,125 m, capex -51.96M cents; cable got CHEAPER too
+   (consolidation into fewer, larger shared cables); s03_grid5 -20,700.
+   Phases 2-4 (fiber re-route, path refresh, prune) unchanged.
+   WATCH: worst CO->premises route is now 18,060 m of the 20,000 m
+   optical budget — further trench consolidation may need a
+   length-capped Steiner variant before it trips route_length_budget.
 6. **Feeder/distribution duplicate-route audit.** Report and then shrink
    corridors where feeder and distribution (or two distribution clusters)
    run on parallel nearby edges when one shared trench would do;
    `sharing_ratio` (cable_route_m / trench_m) should rise as duplicates
-   collapse. Largely subsumed by iter 002's forest re-route.
+   collapse. Largely subsumed by iter 002's forest re-route and iter
+   005's global Steiner tree (sharing_x100 113 -> 120 district).
+6c. **Steiner tree quality gap.** The shortest-path heuristic is a 2-approx;
+   node insertion order = heap pop order. Candidate polish: key-path
+   improvement (remove a tree path between two branch/required nodes,
+   reconnect the two components by their true cheapest path) run to
+   fixpoint — typically shaves another 1-3% trench. Evidence: probe
+   scripts in scratchpad reached 123,670 m with pure SPH on the district;
+   engine landed 123,125 m; MST-lower-bound not yet computed.
 6b. ~~**Terminal-off-trench modeling gap (discovered iter 002).**~~
    FIXED iter 004: terminals are packed first, the distribution tree's
    demand nodes ARE the terminal nodes (unit-weighted), and DeloopTrench
