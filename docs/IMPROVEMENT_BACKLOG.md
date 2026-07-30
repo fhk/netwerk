@@ -42,29 +42,42 @@ for deliberate, reviewed output changes (`BLESS=1`).
    NOTE: terminals_under_4 ROSE 828 -> 1,076 — the DP deliberately buys
    a 2-port (+100k) whenever it avoids >=2 street crossings. Remaining
    levers on crossings are candidates (b)/(c) below.
-1c. **DFS-order interleaving is still the constraint** (was candidate
-   (b)): batches are consecutive runs of the distribution-tree DFS
-   order, which interleaves opposite lot rows and jumps across
-   intersections, so even the optimal partition pays crossings the
-   ORDER forces. Order premises within a node run by lot-row side (e.g.
-   sort by side of the frontage edge, then along it) so runs stop
-   interleaving; the DP then partitions a cleaner sequence. Evidence:
-   5,422 crossings remain with an optimal partition, so ~all of them
-   are order-forced or geometry-forced.
-2. **Terminal min-size 4 rule — retire 2-port strays.** 1,076 under-4
-   terminals after iter 003 (deliberate DP trades: 2-port vs >=2
-   crossings). A post-pack premises<->terminal swap pass (candidate (c),
-   reusing CountDropCrossings) could dissolve strays without re-adding
-   crossings where geometry allows; MergeTerminals alone cannot —
-   neighbors close exactly full.
+1c. ~~**DFS-order interleaving is still the constraint.**~~ RESOLVED
+   iter 004 by removing the sequence entirely: PackTerminals is now a
+   node-centric set-cover greedy (moves = scorer-priced new-batch at any
+   in-reach node, or attach-grow of the terminal already there), run
+   BEFORE distribution routing; the trench is then routed TO the
+   terminal nodes. Negative result recorded on the way: ordering the DP
+   sequence by "home node" (fewest crossings, then most-popular
+   zero-crossing anchor) made the total WORSE (+2.8M district) — the
+   consecutive-batch constraint, not the order, was binding. District
+   crossings 5,422 -> 2,229, under-4 1,076 -> 526, capex -268M (trench
+   190,299 m -> 134,276 m: the tree now targets ~1,700 terminal nodes
+   instead of ~3,000 snap nodes).
+2. **Retire the remaining under-4 strays (526 district).** These are
+   geometry-forced: strays whose neighbours' spare ports sit across
+   uncrossable edges, plus the utilization floor eating spare-port slack
+   (terminal_ports sits exactly at 95.0% after forced repair — ANY
+   change that frees installed ports buys headroom for priced dissolves
+   currently blocked). Candidates: cross-cluster dissolve targets
+   (needs per-cluster fiber bookkeeping), or a swap pass (2 strays merge
+   at a middle node neither currently hosts).
 3. **Drop 2-opt / local-search reassignment to uncross drops.** Down to
-   1,300 drop-drop crossings after iter 003 (6,154 -> 1,856 -> 1,300)
-   as a free side-effect of shorter/cleaner drops (mean 31.8 m). When
-   two drops properly cross, swapping their terminal assignments never
-   lengthens the total by more than the crossing detour; iterate
-   pairwise swaps (grid-hashed candidates, deterministic order) until
-   fixpoint, respecting port capacity and the 150 m rule. ProperCross/
-   the edge grid from iter 001 are reusable here.
+   669 drop-drop crossings after iter 004 (1,300 -> 669 as a free
+   side-effect of node-centric packing). When two drops properly cross,
+   swapping their terminal assignments never lengthens the total by more
+   than the crossing detour; iterate pairwise swaps (grid-hashed
+   candidates, deterministic order) until fixpoint, respecting port
+   capacity and the 150 m rule. ProperCross/the edge grid are reusable.
+3b. **Street-crossing floor analysis (iter 004 evidence).** 2,229
+   district crossings remain; the all-zero-crossing grouping bound says
+   only ~3,027 of 6,719 premises fit in all-zero groups of 4..12, so a
+   floor well above zero is real — but the greedy's per-move pricing
+   (marginal, not global) and the merge repair still leave gap vs the
+   ~1,550 the pure greedy simulation reached before utilization repair.
+   The binding tension is now utilization-floor vs crossings: forced
+   dissolves at the floor buy crossings (measure: engine hits 95.0%
+   exactly).
 
 ## P1 — trench topology
 
@@ -90,13 +103,12 @@ for deliberate, reviewed output changes (`BLESS=1`).
    run on parallel nearby edges when one shared trench would do;
    `sharing_ratio` (cable_route_m / trench_m) should rise as duplicates
    collapse. Largely subsumed by iter 002's forest re-route.
-6b. **Terminal-off-trench modeling gap (discovered iter 002).** Fibers
-   are sized by premises snap-node units, not by terminal location; after
-   forest pruning a terminal can sit on a node whose branch carries no
-   fiber (its customers' snap nodes route elsewhere). No scorer/QA rule
-   measures trench-to-terminal continuity today; if one is ever added
-   (tighten-only), fiber accounting should walk from term_node instead of
-   snap nodes.
+6b. ~~**Terminal-off-trench modeling gap (discovered iter 002).**~~
+   FIXED iter 004: terminals are packed first, the distribution tree's
+   demand nodes ARE the terminal nodes (unit-weighted), and DeloopTrench
+   phase 2 re-anchors fibers at term_node (post-merge assignment) — so
+   kept trench always reaches every terminal, and the tree shrank to
+   boot (fewer, consolidated demand nodes).
 
 ## P2 — clustering and packing optimality
 
@@ -105,11 +117,11 @@ for deliberate, reviewed output changes (`BLESS=1`).
    area (or swap two) when it reduces total graph distance without
    breaking FDH capacity; deterministic scan order, fixpoint-bounded.
 8. ~~**Exact terminal packing per serving area (DP over the DFS order).**~~
-   DONE iter 003 (see item 1b): shortest-path DP over DFS positions with
-   scorer-priced batch arcs replaced the greedy batch split. District
-   runtime 15 s -> 24 s (the DP evaluates every start position instead of
-   ~1/7th of them); fine for now, and the batch-cost table is the natural
-   place to bolt on smarter candidate node ranking later.
+   DONE iter 003, then SUPERSEDED iter 004: the DP's consecutive-batch
+   constraint was the binding limit, so the node-centric set-cover greedy
+   replaced it (see 1c). District runtime dropped 24 s -> ~11 s. A
+   possible future upgrade: replace the greedy's marginal per-move pricing
+   with a proper set-cover LP-rounding or swap-based local search.
 
 ## P3 — harness and tuning
 

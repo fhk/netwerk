@@ -228,6 +228,10 @@ class Design {
   var fdh_size_idx: array(i32, 32);        // chosen cabinet size per cluster
   var fdh_route_len: array(i32, 32);       // feeder route meters CO -> FDH
   // Graph distance premises <- each cluster seed, row-major [seed][premises].
+  // Dead after stage 3b; stage 6 (PackTerminals) reuses it as the packing
+  // pair table — up to 196608 (hi, lo) i32 pairs: hi = crossings * 65536 +
+  // drop_m, lo = premises id. The Design object lives on the stack, so new
+  // scratch must reuse dead arrays instead of growing the class.
   var seed_dist: array(i32, 393216);       // 32 x 12288
 
   // --- access terminals ---

@@ -2,11 +2,12 @@
 //
 // Mirrors SCOPE.md's design-engine pipeline with the heuristics-first
 // strategy: capacitated greedy clustering, medoid facility location,
-// shortest-path Steiner approximation (Takahashi–Matsuyama) for
-// distribution, tree-ordered terminal packing into graduated catalog
-// sizes, and sharing-aware sequential feeder routing. Packing exists to
-// hit the utilization floor: remainders round into the smallest covering
-// catalog unit instead of stranding a large one.
+// node-centric set-cover terminal packing priced by the design-quality
+// scorer (terminals first), shortest-path Steiner approximation
+// (Takahashi–Matsuyama) routing the trench TO the terminals, and
+// sharing-aware sequential feeder routing. Merge repair afterwards is
+// scorer-priced too, with a forced fallback that keeps the utilization
+// floor green.
 
 library "stages";
 
@@ -442,304 +443,298 @@ fn CloseTerminal(ref d: Design, t: i32) {
   d.term_size_idx[t] = idx;
 }
 
-// Packs premises onto shared access terminals by batching.
+// Move-comparison for the packing greedy: is (cost, k, node_i, kind) a
+// strictly better per-premises move than the incumbent (bcost, bk, ...)?
+// Ratio compare cost/k < bcost/bk via cross-multiplication (exact, no
+// floats); ties prefer new-batch over attach, then the lower candidate
+// node index, then the larger batch. bk == 0 means "no incumbent yet".
+fn MoveBetter(cost: i64, k: i32, node_i: i32, kind: i32,
+              bcost: i64, bk: i32, bnode_i: i32, bkind: i32) -> bool {
+  if (bk == 0) {
+    return true;
+  }
+  let lhs: i64 = cost * (bk as i64);
+  let rhs: i64 = bcost * (k as i64);
+  if (lhs != rhs) {
+    return lhs < rhs;
+  }
+  if (kind != bkind) {
+    return kind < bkind;
+  }
+  if (node_i != bnode_i) {
+    return node_i < bnode_i;
+  }
+  return k > bk;
+}
+
+// Packs premises onto shared access terminals — node-centric set-cover
+// greedy (iter 004; replaces the DFS-order DP of iters 001/003).
 //
-// The serving area's premises are ordered by depth-first position of their
-// snap node on the distribution tree (so consecutive premises are physical
-// neighbours), then cut into full batches of the largest terminal size.
-// Each batch's terminal is sited at the member snap node minimizing the
-// worst drop; if no node covers the whole batch within the max-drop rule,
-// the batch shrinks until one does (a single premises is always covered by
-// its own snap node). Only the final batch per serving area is partial,
-// and it closes onto the smallest covering catalog size — so stranded
-// ports are bounded by roughly one partial terminal per serving area.
+// The DP was optimal for its sequence, but the sequence was the binding
+// constraint: batches had to be CONSECUTIVE runs of a linear order, while
+// the cheap groups in parcel geometry are the premises AROUND a shared
+// tree node (the 2-4 lots meeting at a corner reach it with zero street
+// crossings). Two optimal-partition variants both stalled at ~5,400
+// district crossings; a node-centric simulation cut that to ~1,550.
+//
+// Moves, priced exactly like the scorer (cents):
+//   new-batch(node, k): open a k-port terminal (catalog k, or a 1-premises
+//     fallback) at a tree node, serving the k cheapest available members
+//     by (crossings, distance) — cost = 50000/crossing + hardware +
+//     $1.50/m drop + 100000 if k < 4;
+//   attach(node): grow the terminal already at the node by one port for
+//     its cheapest available member — cost = 50000/crossing + hardware
+//     step to the next catalog size + $1.50/m drop, minus 100000 when the
+//     growth lifts the terminal out of the under-4 band.
+// The greedy repeatedly commits the move with the lowest cost PER
+// premises (exact ratio compare), so clean corner groups form first and
+// stragglers attach to neighbours instead of forcing crossings or
+// 2-port strays. MergeTerminals later dissolves what remains into the
+// spare ports the attach moves create.
 fn PackTerminals(ref d: Design, c: i32) {
-  let max_ports: i32 = TerminalSize(TerminalSizeCount() - 1);
+  // Terminal candidate nodes: EVERY road node within drop reach of a
+  // member, in ascending node id (deterministic). Packing runs BEFORE
+  // distribution routing: terminals define the demand nodes, and the
+  // trench is then routed TO them — so terminals sit on open trench by
+  // construction instead of being confined to a tree shaped around
+  // premises snap nodes (which cost ~1,800 extra forced crossings).
 
-  // Depth-first node order over the cluster's tree via an explicit stack.
-  // The seen guard makes each node enter the walk exactly once even if the
-  // graph carried parallel edges (also rejected at ingest).
-  var seen: array(bool, 16384);
-  var si: i32 = 0;
-  while (si < d.node_count) {
-    seen[si] = false;
-    ++si;
-  }
-  var node_order: array(i32, 16384);
-  var order_count: i32 = 0;
-  var stack: array(i32, 16384);
-  var top: i32 = 0;
-  stack[top] = d.fdh_node[c];
-  ++top;
-  seen[d.fdh_node[c]] = true;
-  while (top > 0) {
-    --top;
-    let n: i32 = stack[top];
-    if (d.node_units[n] > 0) {
-      node_order[order_count] = n;
-      ++order_count;
+  // Members of this serving area, in premises-id order.
+  var mem: array(i32, 512);
+  var mcount: i32 = 0;
+  var pm: i32 = 0;
+  while (pm < d.prem_count) {
+    if (d.prem_cluster[pm] == c and mcount < 512) {
+      mem[mcount] = pm;
+      ++mcount;
     }
-    var a: i32 = d.adj_head[n];
-    while (a != -1) {
-      let v: i32 = d.adj_to[a];
-      if (d.in_tree[v] and d.tree_parent_node[v] == n and not seen[v] and
-          top < 16384) {
-        seen[v] = true;
-        stack[top] = v;
-        ++top;
+    ++pm;
+  }
+
+  // Pair table: for every candidate node, every member within drop reach,
+  // as (hi, lo) i32 pairs in the dead seed_dist array (hi = crossings *
+  // 65536 + drop meters, lo = premises id), sorted ascending per node
+  // segment — so a segment walk yields members in (crossings, distance,
+  // id) order. Segments are indexed by node id. Each member keeps at most
+  // 384 candidate nodes (first by ascending node id; the cap plus the
+  // 512-member cap bounds the table at 196608 pairs, exactly seed_dist's
+  // capacity). Pass 1 counts, pass 2 fills — identical scan order and cap
+  // logic, so both passes see the same pairs.
+  var cnt: array(i32, 16384);
+  var ci: i32 = 0;
+  while (ci < d.node_count) {
+    cnt[ci] = 0;
+    ++ci;
+  }
+  var pass: i32 = 0;
+  var off: array(i32, 16385);
+  var fill: array(i32, 16384);
+  while (pass < 2) {
+    var mi: i32 = 0;
+    while (mi < mcount) {
+      let p: i32 = mem[mi];
+      var kept: i32 = 0;
+      var n: i32 = 0;
+      while (n < d.node_count and kept < 384) {
+        if (d.node_x[n] >= d.prem_x[p] - MaxDropM() and
+            d.node_x[n] <= d.prem_x[p] + MaxDropM() and
+            d.node_y[n] >= d.prem_y[p] - MaxDropM() and
+            d.node_y[n] <= d.prem_y[p] + MaxDropM()) {
+          let dd: i32 = DistM(d.prem_x[p], d.prem_y[p],
+                              d.node_x[n], d.node_y[n]);
+          if (dd <= MaxDropM()) {
+            if (pass == 0) {
+              cnt[n] += 1;
+            } else {
+              var xc: i32 = CountDropCrossings(ref d, d.prem_x[p],
+                                               d.prem_y[p], n);
+              if (xc > 32000) {
+                xc = 32000;  // keep hi within i32 (never near in practice)
+              }
+              d.seed_dist[fill[n] * 2] = xc * 65536 + dd;
+              d.seed_dist[fill[n] * 2 + 1] = p;
+              fill[n] += 1;
+            }
+            ++kept;
+          }
+        }
+        ++n;
       }
-      a = d.adj_next[a];
+      ++mi;
     }
-  }
-
-  // Terminal candidate nodes: every node on this serving area's tree, in
-  // ascending node id (deterministic). Terminals must sit on open trench;
-  // pass-through tree nodes are as legitimate as demand nodes and often
-  // the only crossing-free choice (a member snap node across the street
-  // forces every drop over the roadway).
-  var tree_nodes: array(i32, 16384);
-  var tree_node_count: i32 = 0;
-  var tn0: i32 = 0;
-  while (tn0 < d.node_count) {
-    if (d.in_tree[tn0]) {
-      tree_nodes[tree_node_count] = tn0;
-      ++tree_node_count;
-    }
-    ++tn0;
-  }
-
-  // Premises in DFS-node order (id order within a node).
-  var ordered: array(i32, 512);
-  var m: i32 = 0;
-  var oi: i32 = 0;
-  while (oi < order_count) {
-    var p: i32 = 0;
-    while (p < d.prem_count) {
-      if (d.prem_cluster[p] == c and
-          d.prem_snap_node[p] == node_order[oi] and m < 512) {
-        ordered[m] = p;
-        ++m;
+    if (pass == 0) {
+      // Prefix offsets, then reset fill cursors to segment starts.
+      off[0] = 0;
+      var oi: i32 = 0;
+      while (oi < d.node_count) {
+        off[oi + 1] = off[oi] + cnt[oi];
+        fill[oi] = off[oi];
+        ++oi;
       }
-      ++p;
     }
-    ++oi;
+    ++pass;
   }
 
-  // Cut into batches — optimal consecutive partition (DP) over the DFS
-  // order. The iter-001 greedy priced each batch in isolation (best
-  // per-customer cost at the current start), which splintered awkward DFS
-  // runs into 2-ports: it could not see that taking 6 now makes a clean 8
-  // possible next. The DP minimizes the SUM of scorer-priced batch costs
-  // over the whole serving area: 50000 per drop street crossing, terminal
-  // hardware, 100000 for an under-4 terminal, plus drop cable at the
-  // chosen node ($1.50/m — real capex that varies with the partition).
-  // Drop assemblies ($120 each, one per premises regardless of partition)
-  // are constant and left out. Slot layout per start position: slots
-  // 0..TerminalSizeCount()-1 = catalog sizes, last slot = the 1-premises
-  // fallback batch (kept so a DFS-order jump that makes every catalog
-  // size infeasible still leaves the premises served).
-  let inf: i64 = 4611686018427387904;
-  var bc_cost: array(i64, 3072);  // [pos * 6 + slot], 512 x 6
-  var bc_node: array(i32, 3072);
-  var i: i32 = 0;
-  while (i < m) {
-    var slot: i32 = 0;
-    while (slot < 6) {
-      bc_cost[i * 6 + slot] = inf;
-      bc_node[i * 6 + slot] = -1;
-      var size: i32 = 1;
-      if (slot < TerminalSizeCount()) {
-        size = TerminalSize(slot);
+  // Insertion sort within each node segment (segments are small), on
+  // (hi, lo) — i.e. (crossings, distance, premises id).
+  var sn: i32 = 0;
+  while (sn < d.node_count) {
+    var si: i32 = off[sn] + 1;
+    while (si < off[sn + 1]) {
+      let key_hi: i32 = d.seed_dist[si * 2];
+      let key_lo: i32 = d.seed_dist[si * 2 + 1];
+      var sj: i32 = si - 1;
+      while (sj >= off[sn] and
+             (d.seed_dist[sj * 2] > key_hi or
+              (d.seed_dist[sj * 2] == key_hi and
+               d.seed_dist[sj * 2 + 1] > key_lo))) {
+        d.seed_dist[sj * 2 + 2] = d.seed_dist[sj * 2];
+        d.seed_dist[sj * 2 + 3] = d.seed_dist[sj * 2 + 1];
+        --sj;
       }
-      if (i + size > m or size > max_ports) {
-        ++slot;
+      d.seed_dist[sj * 2 + 2] = key_hi;
+      d.seed_dist[sj * 2 + 3] = key_lo;
+      ++si;
+    }
+    ++sn;
+  }
+
+  // term_at[node] = the attachable terminal at that node (the newest one
+  // placed there this cluster). dead[node] = segment empty or fully
+  // assigned; members never become available again, so dead stays dead.
+  var term_at: array(i32, 16384);
+  var ta: i32 = 0;
+  while (ta < d.node_count) {
+    term_at[ta] = -1;
+    ++ta;
+  }
+  var dead: array(bool, 16384);
+  var di: i32 = 0;
+  while (di < d.node_count) {
+    dead[di] = off[di + 1] == off[di];
+    ++di;
+  }
+
+  var remaining: i32 = mcount;
+  while (remaining > 0) {
+    var bcost: i64 = 0;
+    var bk: i32 = 0;
+    var bnode_i: i32 = -1;
+    var bkind: i32 = 0;
+    var ni: i32 = 0;
+    while (ni < d.node_count) {
+      if (dead[ni]) {
+        ++ni;
         continue;
       }
-      // Best covering tree node for the batch: fewest drop street
-      // crossings first (the scorer's exact predicate), then the smallest
-      // worst drop (ties: lower node id). Feasibility is purely the
-      // max-drop rule; every member's snap node is on the tree, so a
-      // 1-premises batch is always feasible when its snap node is in
-      // drop reach.
-      //
-      // The batch bounding box inflated by the drop rule bounds every
-      // feasible candidate — a cheap prefilter before exact distances.
-      var blox: i32 = d.prem_x[ordered[i]];
-      var bhix: i32 = blox;
-      var bloy: i32 = d.prem_y[ordered[i]];
-      var bhiy: i32 = bloy;
-      var bb: i32 = 1;
-      while (bb < size) {
-        let pb: i32 = ordered[i + bb];
-        if (d.prem_x[pb] < blox) { blox = d.prem_x[pb]; }
-        if (d.prem_x[pb] > bhix) { bhix = d.prem_x[pb]; }
-        if (d.prem_y[pb] < bloy) { bloy = d.prem_y[pb]; }
-        if (d.prem_y[pb] > bhiy) { bhiy = d.prem_y[pb]; }
-        ++bb;
-      }
-      blox -= MaxDropM();
-      bhix += MaxDropM();
-      bloy -= MaxDropM();
-      bhiy += MaxDropM();
-
-      var best_node: i32 = -1;
-      var best_cross: i32 = 2147483647;
-      var best_maxd: i32 = 2147483647;
-      var best_sumd: i32 = 0;
-      var ci2: i32 = 0;
-      while (ci2 < tree_node_count) {
-        let cn: i32 = tree_nodes[ci2];
-        ++ci2;
-        if (d.node_x[cn] < blox or d.node_x[cn] > bhix or
-            d.node_y[cn] < bloy or d.node_y[cn] > bhiy) {
-          continue;
+      // First 12 available members of this segment, cheapest first.
+      var ac: array(i32, 12);
+      var ad: array(i32, 12);
+      var na: i32 = 0;
+      var s: i32 = off[ni];
+      while (s < off[ni + 1] and na < 12) {
+        let pid: i32 = d.seed_dist[s * 2 + 1];
+        if (d.prem_terminal[pid] == -1) {
+          let hi: i32 = d.seed_dist[s * 2];
+          ac[na] = hi / 65536;
+          ad[na] = hi % 65536;
+          ++na;
         }
-        var maxd: i32 = 0;
-        var sumd: i32 = 0;
-        var bj: i32 = 0;
-        while (bj < size) {
-          let pj: i32 = ordered[i + bj];
-          let dd: i32 = DistM(d.prem_x[pj], d.prem_y[pj],
-                              d.node_x[cn], d.node_y[cn]);
-          sumd += dd;
-          if (dd > maxd) {
-            maxd = dd;
-            if (maxd > MaxDropM()) {
-              break;
-            }
+        ++s;
+      }
+      if (na == 0) {
+        dead[ni] = true;
+        ++ni;
+        continue;
+      }
+      // New-batch moves at catalog sizes (plus the 1-premises fallback).
+      var pc: i64 = 0;
+      var pd: i64 = 0;
+      var kk: i32 = 0;
+      while (kk < na) {
+        pc += ac[kk] as i64;
+        pd += ad[kk] as i64;
+        let k: i32 = kk + 1;
+        if (k == 1 or k == 2 or k == 4 or k == 6 or k == 8 or k == 12) {
+          var sidx: i32 = 0;
+          while (sidx < TerminalSizeCount() - 1 and TerminalSize(sidx) < k) {
+            ++sidx;
           }
-          ++bj;
-        }
-        if (maxd > MaxDropM()) {
-          continue;
-        }
-        // Crossing sum, aborting once it exceeds the incumbent (the
-        // aborted partial sum can only lose, so the winner is identical).
-        var xc: i32 = 0;
-        var bx: i32 = 0;
-        while (bx < size and xc <= best_cross) {
-          let px: i32 = ordered[i + bx];
-          xc += CountDropCrossings(ref d, d.prem_x[px], d.prem_y[px], cn);
-          ++bx;
-        }
-        if (xc < best_cross or
-            (xc == best_cross and
-             (maxd < best_maxd or
-              (maxd == best_maxd and cn < best_node)))) {
-          best_cross = xc;
-          best_maxd = maxd;
-          best_sumd = sumd;
-          best_node = cn;
-        }
-      }
-      if (best_node != -1) {
-        var cidx: i32 = 0;
-        while (cidx < TerminalSizeCount() - 1 and TerminalSize(cidx) < size) {
-          ++cidx;
-        }
-        var cost: i64 = 50000 * (best_cross as i64) + TerminalCost(cidx) +
-                        DropCablePerM() * (best_sumd as i64);
-        if (size < TerminalSize(1)) {
-          cost += 100000;
-        }
-        bc_cost[i * 6 + slot] = cost;
-        bc_node[i * 6 + slot] = best_node;
-      }
-      ++slot;
-    }
-    ++i;
-  }
-
-  // Shortest path over positions 0..m. dp[j] = min cost to pack
-  // ordered[0..j). Relaxation order — i ascending, then slots, then the
-  // skip arc — with strict '<' updates makes ties deterministic and
-  // prefers the LARGER batch (the transition from the smaller i wins).
-  // The skip arc (leave the premises unterminated; QA reports it) is
-  // priced at the scorer's QA penalty and only ever fires when even the
-  // 1-premises batch has no covering node within the drop rule.
-  var dp: array(i64, 513);
-  var dp_from: array(i32, 513);
-  var dp_slot: array(i32, 513);  // slot taken to arrive here; -2 = skip
-  var j: i32 = 0;
-  while (j <= m) {
-    dp[j] = inf;
-    dp_from[j] = -1;
-    dp_slot[j] = -1;
-    ++j;
-  }
-  dp[0] = 0;
-  i = 0;
-  while (i < m) {
-    if (dp[i] < inf) {
-      var slot2: i32 = 0;
-      while (slot2 < 6) {
-        var size2: i32 = 1;
-        if (slot2 < TerminalSizeCount()) {
-          size2 = TerminalSize(slot2);
-        }
-        if (i + size2 <= m and bc_cost[i * 6 + slot2] < inf) {
-          let cand: i64 = dp[i] + bc_cost[i * 6 + slot2];
-          if (cand < dp[i + size2]) {
-            dp[i + size2] = cand;
-            dp_from[i + size2] = i;
-            dp_slot[i + size2] = slot2;
+          var cost: i64 = 50000 * pc + TerminalCost(sidx) +
+                          DropCablePerM() * pd;
+          if (k < 4) {
+            cost += 100000;
+          }
+          if (MoveBetter(cost, k, ni, 0, bcost, bk, bnode_i, bkind)) {
+            bcost = cost;
+            bk = k;
+            bnode_i = ni;
+            bkind = 0;
           }
         }
-        ++slot2;
+        ++kk;
       }
-      let skip_cand: i64 = dp[i] + 1000000;
-      if (skip_cand < dp[i + 1]) {
-        dp[i + 1] = skip_cand;
-        dp_from[i + 1] = i;
-        dp_slot[i + 1] = -2;
+      // Attach move: grow the terminal already here by one port.
+      let t: i32 = term_at[ni];
+      if (t != -1 and d.term_ports_used[t] < 12) {
+        let used: i32 = d.term_ports_used[t];
+        var nidx: i32 = 0;
+        while (nidx < TerminalSizeCount() - 1 and
+               TerminalSize(nidx) < used + 1) {
+          ++nidx;
+        }
+        var cost2: i64 = 50000 * (ac[0] as i64) +
+                         TerminalCost(nidx) -
+                         TerminalCost(d.term_size_idx[t]) +
+                         DropCablePerM() * (ad[0] as i64);
+        if (used == 3) {
+          cost2 -= 100000;  // growth lifts the terminal out of under-4
+        }
+        if (MoveBetter(cost2, 1, ni, 1, bcost, bk, bnode_i, bkind)) {
+          bcost = cost2;
+          bk = 1;
+          bnode_i = ni;
+          bkind = 1;
+        }
       }
+      ++ni;
     }
-    ++i;
-  }
+    if (bk == 0) {
+      break;  // nobody left in reach of any candidate; QA reports them
+    }
 
-  // Reconstruct, then commit in forward DFS order so terminal ids stay
-  // ordered along the tree (deterministic, diff-friendly).
-  var rb_start: array(i32, 512);
-  var rb_slot: array(i32, 512);
-  var rb_count: i32 = 0;
-  var wj: i32 = m;
-  while (wj > 0 and dp_from[wj] >= 0 and rb_count < 512) {
-    rb_start[rb_count] = dp_from[wj];
-    rb_slot[rb_count] = dp_slot[wj];
-    ++rb_count;
-    wj = dp_from[wj];
-  }
-  var bi: i32 = rb_count - 1;
-  while (bi >= 0) {
-    let st: i32 = rb_start[bi];
-    let sl: i32 = rb_slot[bi];
-    --bi;
-    if (sl == -2) {
-      continue;  // unserved premises; QA reports it
-    }
-    var take: i32 = 1;
-    if (sl < TerminalSizeCount()) {
-      take = TerminalSize(sl);
-    }
-    if (d.term_count < MaxTerminals()) {
-      let pick_node: i32 = bc_node[st * 6 + sl];
-      let nt: i32 = d.term_count;
+    // Commit: re-walk the winning segment for its bk cheapest available
+    // members (same order the pricing walk saw).
+    let node: i32 = bnode_i;
+    var tgt: i32 = -1;
+    if (bkind == 0) {
+      if (d.term_count >= MaxTerminals()) {
+        break;  // terminal store exhausted; QA reports the unserved rest
+      }
+      tgt = d.term_count;
       ++d.term_count;
-      d.term_node[nt] = pick_node;
-      d.term_cluster[nt] = c;
-      d.term_ports_used[nt] = take;
-      d.term_path_len[nt] = d.node_path_m[pick_node];
-      var bk: i32 = 0;
-      while (bk < take) {
-        let pk: i32 = ordered[st + bk];
-        d.prem_terminal[pk] = nt;
-        d.prem_drop_len[pk] = DistM(d.prem_x[pk], d.prem_y[pk],
-                                    d.node_x[pick_node],
-                                    d.node_y[pick_node]);
-        ++bk;
-      }
-      CloseTerminal(ref d, nt);
+      d.term_node[tgt] = node;
+      d.term_cluster[tgt] = c;
+      d.term_ports_used[tgt] = 0;
+      d.term_path_len[tgt] = 0;  // set after distribution routing
+      term_at[node] = tgt;
+    } else {
+      tgt = term_at[node];
     }
+    var taken: i32 = 0;
+    var cs: i32 = off[bnode_i];
+    while (cs < off[bnode_i + 1] and taken < bk) {
+      let pid: i32 = d.seed_dist[cs * 2 + 1];
+      if (d.prem_terminal[pid] == -1) {
+        d.prem_terminal[pid] = tgt;
+        d.prem_drop_len[pid] = d.seed_dist[cs * 2] % 65536;
+        d.term_ports_used[tgt] += 1;
+        ++taken;
+        --remaining;
+      }
+      ++cs;
+    }
+    CloseTerminal(ref d, tgt);
   }
 }
 
@@ -747,18 +742,23 @@ fn PackTerminals(ref d: Design, c: i32) {
 // Stage 5 — distribution routing (Steiner approximation per serving area)
 // ---------------------------------------------------------------------------
 
-// Shortest-path-tree attachment: one Dijkstra from the FDH, then every
-// demand node joins the tree along its shortest path, nearest node first,
-// stopping the walk at the first node already on the tree so shared path
-// prefixes are trenched once. Replaces the Takahashi–Matsuyama variant
-// that re-ran a full multi-source Dijkstra per attachment — O(T * E log V),
-// too slow at parcel-boundary scale. Terminals are packed onto the
-// finished tree afterwards (stage 6), so the tree targets are the
-// premises' snap nodes.
+// Per serving area: pack terminals first (stage 6, node-centric greedy),
+// then grow a Steiner-approximation tree whose demand nodes are the
+// TERMINAL nodes (unit-weighted), Takahashi–Matsuyama style: repeatedly
+// attach the demand node nearest to the current tree by a fresh
+// multi-source Dijkstra, so shared path prefixes are trenched once.
 fn RouteDistribution(ref d: Design) {
   var c: i32 = 0;
   while (c < d.cluster_count) {
-    // Reset per-cluster tree state and per-node demand.
+    // Terminals first (iter 004): packing picks the crossing-minimal
+    // terminal nodes, and those terminals then ARE the demand the trench
+    // is routed to — so every terminal sits on open trench by
+    // construction, and fibers feed terminal locations instead of
+    // premises snap nodes (the backlog 6b accounting gap).
+    PackTerminals(ref d, c);
+
+    // Reset per-cluster tree state and per-node demand (terminal nodes,
+    // weighted by their premises' units).
     var n: i32 = 0;
     while (n < d.node_count) {
       d.in_tree[n] = false;
@@ -770,8 +770,8 @@ fn RouteDistribution(ref d: Design) {
     }
     var p: i32 = 0;
     while (p < d.prem_count) {
-      if (d.prem_cluster[p] == c) {
-        d.node_units[d.prem_snap_node[p]] += d.prem_units[p];
+      if (d.prem_cluster[p] == c and d.prem_terminal[p] != -1) {
+        d.node_units[d.term_node[d.prem_terminal[p]]] += d.prem_units[p];
       }
       ++p;
     }
@@ -841,24 +841,14 @@ fn RouteDistribution(ref d: Design) {
       ++n;
     }
 
-    // Path lengths for pass-through tree nodes too: terminal packing may
-    // site a terminal on any tree node, and its route length must be real.
-    n = 0;
-    while (n < d.node_count) {
-      if (d.in_tree[n] and d.node_units[n] == 0 and n != d.fdh_node[c]) {
-        var walk2: i32 = n;
-        var pm: i32 = 0;
-        while (walk2 != d.fdh_node[c] and d.tree_parent_edge[walk2] != -1) {
-          pm += d.edge_len[d.tree_parent_edge[walk2]];
-          walk2 = d.tree_parent_node[walk2];
-        }
-        d.node_path_m[n] = pm;
+    // Terminal route lengths, now that the tree to their nodes exists.
+    var t: i32 = 0;
+    while (t < d.term_count) {
+      if (d.term_cluster[t] == c and d.in_tree[d.term_node[t]]) {
+        d.term_path_len[t] = d.node_path_m[d.term_node[t]];
       }
-      ++n;
+      ++t;
     }
-
-    // Stage 6 packs terminals while this cluster's tree state is live.
-    PackTerminals(ref d, c);
     ++c;
   }
 }
@@ -911,21 +901,34 @@ fn MovePremises(ref d: Design, p: i32, from: i32, to: i32) {
 }
 
 // Dissolves a terminal if every one of its premises fits on other
-// terminals within drop reach. Returns true if the terminal was emptied.
-fn TryDissolve(ref d: Design, t: i32) -> bool {
-  // Feasibility first, against a scratch copy of port counts.
+// terminals within drop reach AND (unless `force`) the move is
+// scorer-positive: the hardware retired plus any under-4 penalties
+// cleared must exceed the street-crossing and drop-cable cost of the
+// relocated drops. The un-priced version silently traded ~4,900 street
+// crossings for utilization on the district. Returns true if emptied.
+fn TryDissolve(ref d: Design, t: i32, force: bool) -> bool {
+  // Feasibility and pricing first, against a scratch copy of port counts.
   var scratch: array(i32, 4096);
   var u: i32 = 0;
   while (u < d.term_count) {
     scratch[u] = d.term_ports_used[u];
     ++u;
   }
+  // Gain: retired hardware, plus 100000 if t itself is an under-4 stray,
+  // plus 100000 per target this dissolve lifts across the 4-port line.
+  var gain: i64 = TerminalCost(d.term_size_idx[t]);
+  if (d.term_ports_used[t] < 4) {
+    gain += 100000;
+  }
+  var cost: i64 = 0;
   var p: i32 = 0;
   while (p < d.prem_count) {
     if (d.prem_terminal[p] == t) {
       // Mirrors BestTargetTerminal's ranking (crossings, then distance)
       // against the scratch counts, so the commit greedy below always
-      // finds the same targets the feasibility scan did.
+      // finds the same targets the feasibility scan did. Lexicographic
+      // (crossings, distance) is exactly the cents order: one crossing
+      // (50000) outweighs any in-reach drop delta (<= 150 m * 150 c/m).
       var best: i32 = -1;
       var best_cross: i32 = 2147483647;
       var best_dist: i32 = 2147483647;
@@ -951,11 +954,22 @@ fn TryDissolve(ref d: Design, t: i32) -> bool {
       if (best == -1) {
         return false;
       }
+      let old_cross: i32 = CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
+                                              d.term_node[t]);
+      cost += 50000 * ((best_cross - old_cross) as i64) +
+              DropCablePerM() * ((best_dist - d.prem_drop_len[p]) as i64);
+      if (scratch[best] == 3) {
+        gain += 100000;  // target crosses the under-4 line at 4
+      }
       scratch[best] += 1;
     }
     ++p;
   }
-  // Feasible: commit with the same greedy, against the live counts.
+  if (not force and cost >= gain) {
+    return false;
+  }
+  // Feasible (and priced, unless forced): commit with the same greedy,
+  // against the live counts.
   p = 0;
   while (p < d.prem_count) {
     if (d.prem_terminal[p] == t) {
@@ -967,11 +981,15 @@ fn TryDissolve(ref d: Design, t: i32) -> bool {
   return true;
 }
 
-// Utilization repair: (1) dissolve small terminals entirely into their
-// neighbours' spare ports, smallest first, until a fixed point; then
-// (2) shrink terminals sitting just above a catalog size boundary by
-// shedding the overhang. Both moves only ever reduce installed ports;
-// drop-length and capacity rules are re-checked by QA as usual.
+// Utilization repair, scorer-priced (iter 004): (1) dissolve terminals
+// into neighbours' spare ports when the retired hardware plus cleared
+// under-4 penalties outweigh the added crossings and drop cable; then
+// (2) if the aggregate terminal-port utilization still misses the QA
+// floor, force-dissolve the smallest dissolvable terminals (fewest
+// moves, least damage) until it holds — the floor is a hard gate, so
+// this may buy crossings, but only as a last resort, never silently.
+// The old shrink phase is gone: shedding overhang premises paid
+// un-priced crossings for a $30-70 hardware step.
 fn MergeTerminals(ref d: Design) {
   var pass: i32 = 0;
   var changed: bool = true;
@@ -982,7 +1000,7 @@ fn MergeTerminals(ref d: Design) {
       var t: i32 = 0;
       while (t < d.term_count) {
         if (d.term_ports_used[t] == used_level) {
-          if (TryDissolve(ref d, t)) {
+          if (TryDissolve(ref d, t, false)) {
             changed = true;
           }
         }
@@ -993,58 +1011,50 @@ fn MergeTerminals(ref d: Design) {
     ++pass;
   }
 
-  // Shrink to the next size boundary where neighbours have room.
+  // Re-close every live terminal at its final fill before measuring.
   var t2: i32 = 0;
   while (t2 < d.term_count) {
     if (d.term_ports_used[t2] > 0) {
-      // Largest catalog size at or below current fill minus what fits.
-      var boundary: i32 = 0;
-      var i: i32 = 0;
-      while (i < TerminalSizeCount()) {
-        if (TerminalSize(i) < d.term_ports_used[t2]) {
-          boundary = TerminalSize(i);
-        }
-        ++i;
-      }
-      // Shed the overhang above the boundary if targets exist.
-      while (boundary > 0 and d.term_ports_used[t2] > boundary) {
-        // Move the premises of t2 with the shortest move distance.
-        var move_p: i32 = -1;
-        var move_target: i32 = -1;
-        var move_dist: i32 = 2147483647;
-        var p: i32 = 0;
-        while (p < d.prem_count) {
-          if (d.prem_terminal[p] == t2) {
-            let target: i32 = BestTargetTerminal(ref d, p, t2);
-            if (target != -1) {
-              let dd: i32 = DistM(d.prem_x[p], d.prem_y[p],
-                                  d.node_x[d.term_node[target]],
-                                  d.node_y[d.term_node[target]]);
-              if (dd < move_dist) {
-                move_dist = dd;
-                move_p = p;
-                move_target = target;
-              }
-            }
-          }
-          ++p;
-        }
-        if (move_p == -1) {
-          break;
-        }
-        MovePremises(ref d, move_p, t2, move_target);
-      }
+      CloseTerminal(ref d, t2);
     }
     ++t2;
   }
 
-  // Re-close every live terminal at its final fill.
-  var t3: i32 = 0;
-  while (t3 < d.term_count) {
-    if (d.term_ports_used[t3] > 0) {
-      CloseTerminal(ref d, t3);
+  // Utilization-floor repair: forced dissolves, smallest fills first.
+  var guard: i32 = 0;
+  while (guard < d.term_count) {
+    ++guard;
+    var used: i64 = 0;
+    var installed: i64 = 0;
+    var t3: i32 = 0;
+    while (t3 < d.term_count) {
+      if (d.term_ports_used[t3] > 0) {
+        used += d.term_ports_used[t3] as i64;
+        installed += TerminalSize(d.term_size_idx[t3]) as i64;
+      }
+      ++t3;
     }
-    ++t3;
+    if (installed <= 0 or
+        used * 1000 >= (UtilizationFloorPct() as i64) * 10 * installed) {
+      break;  // floor holds
+    }
+    var done: bool = false;
+    var lvl: i32 = 1;
+    while (lvl < TerminalSize(TerminalSizeCount() - 1) and not done) {
+      var t4: i32 = 0;
+      while (t4 < d.term_count and not done) {
+        if (d.term_ports_used[t4] == lvl) {
+          if (TryDissolve(ref d, t4, true)) {
+            done = true;
+          }
+        }
+        ++t4;
+      }
+      ++lvl;
+    }
+    if (not done) {
+      break;  // nothing dissolvable; QA reports the floor miss honestly
+    }
   }
 }
 
@@ -1208,7 +1218,7 @@ fn ForestBfs(ref d: Design, root: i32) {
 // trench. Fix: build the minimum-trench-cost spanning forest of the used
 // trench graph (Prim; key = trench cents * 65536 + edge id, so keys are
 // unique and the forest is fully determined), then re-route distribution
-// fibers (per-cluster, snap-node units to FDH — same sizing semantics as
+// fibers (per-cluster, terminal-node units to FDH — same sizing semantics as
 // RouteDistribution) and feeder fibers (CO -> FDH) along the forest's
 // unique paths, refresh term_path_len / fdh_route_len, and keep trench only
 // where cable actually runs. Cables detour slightly (cable is $0.95-7.80/m)
@@ -1285,8 +1295,10 @@ fn DeloopTrench(ref d: Design) {
     }
     var p: i32 = 0;
     while (p < d.prem_count) {
-      if (d.prem_cluster[p] == c) {
-        d.node_units[d.prem_snap_node[p]] += d.prem_units[p];
+      if (d.prem_cluster[p] == c and d.prem_terminal[p] != -1) {
+        // Fibers feed TERMINAL locations (post-merge assignment), so the
+        // kept trench always reaches every terminal (backlog 6b).
+        d.node_units[d.term_node[d.prem_terminal[p]]] += d.prem_units[p];
       }
       ++p;
     }
