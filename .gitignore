@@ -4,3 +4,5 @@ carbon_toolchain-*.tar.gz
 toolchain.tar.gz
 .claude/
 .results/
+__pycache__/
+*.pyc

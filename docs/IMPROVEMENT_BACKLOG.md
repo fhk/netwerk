@@ -20,29 +20,49 @@ for deliberate, reviewed output changes (`BLESS=1`).
 
 ## P0 — drop geometry (dominates the penalty budget)
 
-1. **Drop street-crossing constraint in terminal packing and premises
-   reassignment.** A drop (premises -> terminal node) may not properly
-   intersect any road edge except at its own frontage. Baseline: 20,028
-   crossings on the district alone. Candidate-node selection in packing
-   (stage 6) and the reassignment passes must reject terminal nodes whose
-   drop segment crosses a road edge (same exact integer orientation test
-   the scorer uses), falling back to nearest non-crossing node.
-2. **Terminal min-size 4 rule — retire 2-port strays.** Every live
-   terminal must serve 4..12 customers. Baseline: 310 terminals under 4
-   customers (300x terminal_2p in the district BOM). Fold sub-4 remainders
-   into neighboring terminals within drop reach during packing instead of
-   emitting stray small terminals; drop the 2p/6p sizes from packing
-   choices unless a remainder genuinely cannot merge.
-3. **Drop 2-opt / local-search reassignment to uncross drops.** Baseline:
-   6,154 drop-drop crossings. When two drops properly cross, swapping
-   their terminal assignments never lengthens the total by more than the
-   crossing detour; iterate pairwise swaps (grid-hashed candidates,
-   deterministic order) until fixpoint, respecting port capacity and the
-   150 m rule.
+1. ~~**Drop street-crossing constraint in terminal packing and premises
+   reassignment.**~~ DONE iter 001 (20,028 -> 7,498 district crossings;
+   total score -680M). Engine now carries the scorer's exact integer
+   orientation predicate + a 128 m edge grid (`CountDropCrossings` in
+   graph.carbon); packing ranks every tree node by (crossings, worst
+   drop) and — crucially — prices the BATCH SIZE: the road graph is a
+   lattice of parcel lot lines, so a k-customer terminal carries ~k^2/4
+   unavoidable crossings; each catalog size is scored at
+   (50000*crossings + hardware + 100000*under-4)/customers and the
+   cheapest wins. MergeTerminals target-ranking is crossing-aware too.
+   MaxTerminals raised 2048 -> 4096 (the cap silently unserved 41
+   premises -> QA caught it).
+1b. **Batch composition is now the binding constraint on the remaining
+   7,498 crossings AND the 828 under-4 terminals.** Batches are
+   consecutive runs of the distribution-tree DFS order, which interleaves
+   opposite lot rows and jumps across intersections, so packing often
+   faces "12 with many crossings vs 2 with none" and the priced choice
+   splinters into 2-ports (terminals_under_4 rose 310 -> 828, +52M).
+   Fix candidates, in order of expected value: (a) DP over the DFS order
+   (item 8) with the iter-001 batch cost — optimal consecutive partition
+   instead of greedy; (b) order premises within a node run by lot-row
+   side so runs stop interleaving; (c) post-pack premises<->terminal swap
+   pass reusing CountDropCrossings.
+2. **Terminal min-size 4 rule — retire 2-port strays.** 828 under-4
+   terminals after iter 001 (was 310). MergeTerminals cannot consolidate
+   them: neighbors are exactly-full 4/4s with no spare ports under their
+   chosen size. Needs swap-based repacking (move a member out of a full
+   terminal to make room for a stray's 2) or the item-1b DP, which
+   sizes batches 4+ whenever geometry allows.
+3. **Drop 2-opt / local-search reassignment to uncross drops.** Down to
+   1,856 drop-drop crossings after iter 001 (was 6,154) as a free
+   side-effect of shorter drops (mean 59.5 m -> 37.4 m). When two drops
+   properly cross, swapping their terminal assignments never lengthens
+   the total by more than the crossing detour; iterate pairwise swaps
+   (grid-hashed candidates, deterministic order) until fixpoint,
+   respecting port capacity and the 150 m rule. ProperCross/the edge
+   grid from iter 001 are reusable here.
 
 ## P1 — trench topology
 
-4. **Ring elimination on the used trench.** Baseline: 866 independent
+4. **Ring elimination on the used trench.** Now the single largest
+   penalty block (866 rings x 500000 = 433M vs 375M for crossings after
+   iter 001). Baseline: 866 independent
    cycles (E - V + C over trench=1 edges). The converter emits up to 500
    extra street-crossing edges so routes need not detour around a single
    bridge — but routing should not OPEN trench on crossings (or parcel
