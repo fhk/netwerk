@@ -1,0 +1,13 @@
+# Design-quality game room: s02_parallel_streets (see docs/IMPROVEMENT_BACKLOG.md).
+# Loose data-capture assertions: the room always yields the composite
+# score line; results/LEDGER.md tracks progress. Tighten only targets
+# already met.
+command: "R=$(cd ../../../.. && pwd); $R/build/netwerk < $R/scenarios/s02_parallel_streets.txt > report.txt; $R/build/netwerk_export < $R/scenarios/s02_parallel_streets.txt > geom.txt; python3 $R/tools/score_design.py --interchange $R/scenarios/s02_parallel_streets.txt --geom geom.txt --report report.txt --json score.json; grep 'qa verdict:' report.txt"
+timeout: 60
+assertions:
+  - type: output_regex
+    stream: stdout
+    pattern: "score: [0-9]+"
+  - type: output_contains
+    stream: stdout
+    pattern: "qa verdict:"

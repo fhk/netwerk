@@ -3,3 +3,4 @@ carbon_toolchain-*/
 carbon_toolchain-*.tar.gz
 toolchain.tar.gz
 .claude/
+.results/

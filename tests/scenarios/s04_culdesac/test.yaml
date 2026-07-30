@@ -1,0 +1,13 @@
+# Design-quality game room: s04_culdesac (see docs/IMPROVEMENT_BACKLOG.md).
+# Loose data-capture assertions: the room always yields the composite
+# score line; results/LEDGER.md tracks progress. Tighten only targets
+# already met.
+command: "R=$(cd ../../../.. && pwd); $R/build/netwerk < $R/scenarios/s04_culdesac.txt > report.txt; $R/build/netwerk_export < $R/scenarios/s04_culdesac.txt > geom.txt; python3 $R/tools/score_design.py --interchange $R/scenarios/s04_culdesac.txt --geom geom.txt --report report.txt --json score.json; grep 'qa verdict:' report.txt"
+timeout: 60
+assertions:
+  - type: output_regex
+    stream: stdout
+    pattern: "score: [0-9]+"
+  - type: output_contains
+    stream: stdout
+    pattern: "qa verdict:"

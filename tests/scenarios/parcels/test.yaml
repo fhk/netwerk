@@ -1,0 +1,12 @@
+# Design-quality game room: the real Monterey County parcel district
+# (6,719 premises). Loose data-capture assertions: the room always yields
+# the composite score line; results/LEDGER.md tracks progress.
+command: "R=$(cd ../../../.. && pwd); $R/build/netwerk < $R/data/parcels_district.txt > report.txt; $R/build/netwerk_export < $R/data/parcels_district.txt > geom.txt; python3 $R/tools/score_design.py --interchange $R/data/parcels_district.txt --geom geom.txt --report report.txt --json score.json; grep 'qa verdict:' report.txt"
+timeout: 300
+assertions:
+  - type: output_regex
+    stream: stdout
+    pattern: "score: [0-9]+"
+  - type: output_contains
+    stream: stdout
+    pattern: "qa verdict:"
