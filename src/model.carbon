@@ -145,7 +145,7 @@ fn MaxNodes() -> i32 { return 16384; }
 fn MaxEdges() -> i32 { return 49152; }
 fn MaxPremises() -> i32 { return 12288; }
 fn MaxClusters() -> i32 { return 32; }
-fn MaxTerminals() -> i32 { return 2048; }
+fn MaxTerminals() -> i32 { return 4096; }
 
 // ---------------------------------------------------------------------------
 // The Design object: one instance is the unit of work handed through every
@@ -232,11 +232,11 @@ class Design {
 
   // --- access terminals ---
   var term_count: i32;
-  var term_node: array(i32, 2048);
-  var term_cluster: array(i32, 2048);
-  var term_ports_used: array(i32, 2048);
-  var term_size_idx: array(i32, 2048);     // catalog size chosen at close
-  var term_path_len: array(i32, 2048);     // tree route meters terminal -> FDH
+  var term_node: array(i32, 4096);
+  var term_cluster: array(i32, 4096);
+  var term_ports_used: array(i32, 4096);
+  var term_size_idx: array(i32, 4096);     // catalog size chosen at close
+  var term_path_len: array(i32, 4096);     // tree route meters terminal -> FDH
 
   // --- CO / OLT ---
   var co_node: i32;
@@ -252,6 +252,16 @@ class Design {
   var tree_parent_edge: array(i32, 16384);
   var node_path_m: array(i32, 16384);       // tree route meters node -> FDH
   var node_units: array(i32, 16384);        // demand units snapped per node
+
+  // --- edge spatial grid (128 m cells, 128x128; drop-crossing prefilter) ---
+  var eg_minx: i32;
+  var eg_miny: i32;
+  var eg_count: i32;
+  var eg_query: i32;
+  var eg_head: array(i32, 16384);
+  var eg_next: array(i32, 131072);
+  var eg_edge: array(i32, 131072);
+  var eg_stamp: array(i32, 49152);
 
   // --- Dijkstra working state (reused across stages) ---
   var dist: array(i64, 16384);

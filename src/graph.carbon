@@ -32,7 +32,138 @@ fn LinkEdge(ref d: Design, e: i32) {
   ++d.adj_count;
 }
 
-// Computes edge lengths from node coordinates and builds adjacency.
+// --- exact segment crossing + edge spatial grid ----------------------------
+//
+// A drop (premises -> terminal node) must not properly cross any road edge
+// except at its own frontage. These are the scorer's exact integer
+// orientation predicates, accelerated by a 128 m grid over edge bounding
+// boxes so packing and repair can rank terminal candidates by the street
+// crossings they would create.
+
+fn Orient(ax: i32, ay: i32, bx: i32, by: i32, cx: i32, cy: i32) -> i64 {
+  let abx: i64 = (bx - ax) as i64;
+  let aby: i64 = (by - ay) as i64;
+  let acx: i64 = (cx - ax) as i64;
+  let acy: i64 = (cy - ay) as i64;
+  return abx * acy - aby * acx;
+}
+
+// True iff segments pq and ab intersect at a single interior point of both
+// (endpoint touches and collinear overlaps excluded) — the scorer's test.
+fn ProperCross(px: i32, py: i32, qx: i32, qy: i32,
+               ax: i32, ay: i32, bx: i32, by: i32) -> bool {
+  let d1: i64 = Orient(ax, ay, bx, by, px, py);
+  let d2: i64 = Orient(ax, ay, bx, by, qx, qy);
+  if ((d1 > 0 and d2 > 0) or (d1 < 0 and d2 < 0) or d1 == 0 or d2 == 0) {
+    return false;
+  }
+  let d3: i64 = Orient(px, py, qx, qy, ax, ay);
+  let d4: i64 = Orient(px, py, qx, qy, bx, by);
+  if ((d3 > 0 and d4 > 0) or (d3 < 0 and d4 < 0) or d3 == 0 or d4 == 0) {
+    return false;
+  }
+  return true;
+}
+
+// Grid coordinate of a world coordinate, clamped into the 128-cell axis.
+// Clamping is monotone, so intersecting bounding boxes always land in
+// intersecting cell ranges — the grid stays a true superset prefilter.
+fn GridCell(v: i32, origin: i32) -> i32 {
+  var c: i32 = (v - origin) / 128;
+  if (c < 0) { c = 0; }
+  if (c > 127) { c = 127; }
+  return c;
+}
+
+// Indexes every edge into the cells covered by its bounding box.
+fn BuildEdgeGrid(ref d: Design) {
+  var minx: i32 = d.node_x[0];
+  var miny: i32 = d.node_y[0];
+  var n: i32 = 1;
+  while (n < d.node_count) {
+    if (d.node_x[n] < minx) { minx = d.node_x[n]; }
+    if (d.node_y[n] < miny) { miny = d.node_y[n]; }
+    ++n;
+  }
+  d.eg_minx = minx;
+  d.eg_miny = miny;
+  var c: i32 = 0;
+  while (c < 16384) {
+    d.eg_head[c] = -1;
+    ++c;
+  }
+  d.eg_count = 0;
+  d.eg_query = 0;
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    d.eg_stamp[e] = 0;
+    var cx0: i32 = GridCell(d.node_x[d.edge_from[e]], minx);
+    var cx1: i32 = GridCell(d.node_x[d.edge_to[e]], minx);
+    var cy0: i32 = GridCell(d.node_y[d.edge_from[e]], miny);
+    var cy1: i32 = GridCell(d.node_y[d.edge_to[e]], miny);
+    if (cx1 < cx0) { let tx: i32 = cx0; cx0 = cx1; cx1 = tx; }
+    if (cy1 < cy0) { let ty: i32 = cy0; cy0 = cy1; cy1 = ty; }
+    var cy: i32 = cy0;
+    while (cy <= cy1) {
+      var cx: i32 = cx0;
+      while (cx <= cx1) {
+        if (d.eg_count < 131072) {
+          d.eg_edge[d.eg_count] = e;
+          d.eg_next[d.eg_count] = d.eg_head[cy * 128 + cx];
+          d.eg_head[cy * 128 + cx] = d.eg_count;
+          ++d.eg_count;
+        }
+        ++cx;
+      }
+      ++cy;
+    }
+    ++e;
+  }
+}
+
+// Number of road edges the drop (px,py) -> node tn properly crosses,
+// excluding edges incident to tn (the drop's own frontage) — exactly the
+// scorer's drop_street_crossings contribution for this drop.
+fn CountDropCrossings(ref d: Design, px: i32, py: i32, tn: i32) -> i32 {
+  let qx: i32 = d.node_x[tn];
+  let qy: i32 = d.node_y[tn];
+  ++d.eg_query;
+  var cx0: i32 = GridCell(px, d.eg_minx);
+  var cx1: i32 = GridCell(qx, d.eg_minx);
+  var cy0: i32 = GridCell(py, d.eg_miny);
+  var cy1: i32 = GridCell(qy, d.eg_miny);
+  if (cx1 < cx0) { let tx: i32 = cx0; cx0 = cx1; cx1 = tx; }
+  if (cy1 < cy0) { let ty: i32 = cy0; cy0 = cy1; cy1 = ty; }
+  var cnt: i32 = 0;
+  var cy: i32 = cy0;
+  while (cy <= cy1) {
+    var cx: i32 = cx0;
+    while (cx <= cx1) {
+      var it: i32 = d.eg_head[cy * 128 + cx];
+      while (it != -1) {
+        let e: i32 = d.eg_edge[it];
+        if (d.eg_stamp[e] != d.eg_query) {
+          d.eg_stamp[e] = d.eg_query;
+          let a: i32 = d.edge_from[e];
+          let b: i32 = d.edge_to[e];
+          if (a != tn and b != tn and
+              ProperCross(px, py, qx, qy,
+                          d.node_x[a], d.node_y[a],
+                          d.node_x[b], d.node_y[b])) {
+            ++cnt;
+          }
+        }
+        it = d.eg_next[it];
+      }
+      ++cx;
+    }
+    ++cy;
+  }
+  return cnt;
+}
+
+// Computes edge lengths from node coordinates, builds adjacency, and
+// indexes the edge grid for drop-crossing queries.
 fn BuildGraph(ref d: Design) {
   var e: i32 = 0;
   while (e < d.edge_count) {
@@ -41,6 +172,7 @@ fn BuildGraph(ref d: Design) {
     LinkEdge(ref d, e);
     ++e;
   }
+  BuildEdgeGrid(ref d);
 }
 
 // --- binary min-heap over d.dist, lazy insertion ---

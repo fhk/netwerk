@@ -1,0 +1,18 @@
+{
+ "cable_route_m": 480,
+ "capex_cents": 3261600,
+ "drop_count": 40,
+ "drop_drop_crossings": 1,
+ "drop_max_m": 135,
+ "drop_mean_m": 49.23,
+ "drop_street_crossings": 0,
+ "qa_errors": 3,
+ "qa_verdict": "FAIL",
+ "rings": 0,
+ "score": 6381600,
+ "sharing_ratio": 1.0,
+ "terminal_count": 5,
+ "terminals_over_12": 0,
+ "terminals_under_4": 1,
+ "trench_m": 480
+}
