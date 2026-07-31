@@ -55,20 +55,24 @@ fn CableCostPerM(idx: i32) -> i64 {
   return 780;                     // 288f $7.80/m
 }
 
-// Splitters: 1:4 / 1:8 / 1:16 / 1:32.
-fn SplitterSizeCount() -> i32 { return 4; }
+// Splitters: 1:2 / 1:4 / 1:8 / 1:16 / 1:32. The 1:2 tap is standard PON
+// kit and closes the remainder gap — a 26-port demand had to buy a 1:32
+// (81% utilization) when 16+8+2 covers it exactly.
+fn SplitterSizeCount() -> i32 { return 5; }
 
 fn SplitterSize(idx: i32) -> i32 {
-  if (idx == 0) { return 4; }
-  if (idx == 1) { return 8; }
-  if (idx == 2) { return 16; }
+  if (idx == 0) { return 2; }
+  if (idx == 1) { return 4; }
+  if (idx == 2) { return 8; }
+  if (idx == 3) { return 16; }
   return 32;
 }
 
 fn SplitterCost(idx: i32) -> i64 {
-  if (idx == 0) { return 6000; }    // 1:4   $60
-  if (idx == 1) { return 9000; }    // 1:8   $90
-  if (idx == 2) { return 12000; }   // 1:16  $120
+  if (idx == 0) { return 4000; }    // 1:2   $40
+  if (idx == 1) { return 6000; }    // 1:4   $60
+  if (idx == 2) { return 9000; }    // 1:8   $90
+  if (idx == 3) { return 12000; }   // 1:16  $120
   return 18000;                     // 1:32  $180
 }
 
@@ -91,34 +95,51 @@ fn TerminalCost(idx: i32) -> i64 {
   return 25000;                     // 12-port $250
 }
 
-// FDH cabinets: capacity in premises units served.
-fn FdhSizeCount() -> i32 { return 3; }
+// FDH cabinets: capacity in premises units served. Small pedestals are
+// standard kit for cul-de-sacs and short streets — without them a
+// 24-home build had to buy a 144-unit cabinet (16.6% utilization).
+fn FdhSizeCount() -> i32 { return 7; }
 
 fn FdhSize(idx: i32) -> i32 {
-  if (idx == 0) { return 144; }
-  if (idx == 1) { return 288; }
+  if (idx == 0) { return 12; }
+  if (idx == 1) { return 24; }
+  if (idx == 2) { return 48; }
+  if (idx == 3) { return 96; }
+  if (idx == 4) { return 144; }
+  if (idx == 5) { return 288; }
   return 432;
 }
 
 fn FdhCost(idx: i32) -> i64 {
-  if (idx == 0) { return 120000; }  // 144-unit $1200
-  if (idx == 1) { return 180000; }  // 288-unit $1800
-  return 250000;                    // 432-unit $2500
+  if (idx == 0) { return 30000; }   // 12-unit  pedestal $300
+  if (idx == 1) { return 45000; }   // 24-unit  pedestal $450
+  if (idx == 2) { return 65000; }   // 48-unit  cabinet  $650
+  if (idx == 3) { return 90000; }   // 96-unit  cabinet  $900
+  if (idx == 4) { return 120000; }  // 144-unit cabinet  $1200
+  if (idx == 5) { return 180000; }  // 288-unit cabinet  $1800
+  return 250000;                    // 432-unit cabinet  $2500
 }
 
-// OLT line cards: 4 / 8 / 16 PON ports; a chassis holds 16 card slots.
-fn OltCardSizeCount() -> i32 { return 3; }
+// OLT line cards: 1 / 2 / 4 / 8 / 16 PON ports; a chassis holds 16 card
+// slots. The 1- and 2-port entries model pluggable/micro-OLT kit, which
+// is what a handful of PON ports actually gets deployed on — the 4-port
+// floor left a single-splitter build at 25% port utilization.
+fn OltCardSizeCount() -> i32 { return 5; }
 
 fn OltCardPorts(idx: i32) -> i32 {
-  if (idx == 0) { return 4; }
-  if (idx == 1) { return 8; }
+  if (idx == 0) { return 1; }
+  if (idx == 1) { return 2; }
+  if (idx == 2) { return 4; }
+  if (idx == 3) { return 8; }
   return 16;
 }
 
 fn OltCardCost(idx: i32) -> i64 {
-  if (idx == 0) { return 40000; }   // 4-port card  $400
-  if (idx == 1) { return 70000; }   // 8-port card  $700
-  return 120000;                    // 16-port card $1200
+  if (idx == 0) { return 15000; }   // 1-port  pluggable $150
+  if (idx == 1) { return 22000; }   // 2-port  micro-OLT $220
+  if (idx == 2) { return 40000; }   // 4-port  card      $400
+  if (idx == 3) { return 70000; }   // 8-port  card      $700
+  return 120000;                    // 16-port card      $1200
 }
 
 fn OltChassisCardSlots() -> i32 { return 16; }
@@ -224,7 +245,7 @@ class Design {
   var cluster_take_units: array(i32, 32);  // units provisioned at take rate
   var fdh_node: array(i32, 32);
   var fdh_splitters: array(i32, 32);       // total splitter count (all sizes)
-  var fdh_split_by_size: array(i32, 128);  // [cluster * 4 + size_idx]
+  var fdh_split_by_size: array(i32, 160);  // [cluster * 5 + size_idx]
   var fdh_size_idx: array(i32, 32);        // chosen cabinet size per cluster
   var fdh_route_len: array(i32, 32);       // feeder route meters CO -> FDH
   // Graph distance premises <- each cluster seed, row-major [seed][premises].

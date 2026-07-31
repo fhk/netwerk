@@ -11,3 +11,4 @@ Composite score (lower is better) summed over all scenarios and the parcel distr
 | 004 | node-centric set-cover packing: terminals first, trench routed to terminals, scorer-priced merge | 1068810835 | 877380835 | 2229 | 669 | 526 | 0 | 14 |
 | 005 | global Steiner trench: DeloopTrench grows one tree over the full road graph (CO+FDH+terminals) | 1016829930 | 825399930 | 2229 | 669 | 526 | 0 | 14 |
 | 006 | growth-aware priced merge: targets may step up the catalog to absorb under-4 strays | 1015618980 | 824938980 | 2238 | 684 | 511 | 0 | 14 |
+| 007 | catalog granularity: small FDH pedestals, 1-2 port OLT cards, 1:2 splitter, minimal-cover splitter bank | 1006158940 | 825478940 | 2238 | 684 | 511 | 0 | 4 |

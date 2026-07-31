@@ -56,7 +56,7 @@ fn SplitterPortsInstalled(ref d: Design) -> i32 {
   while (c < d.cluster_count) {
     var i: i32 = 0;
     while (i < SplitterSizeCount()) {
-      ports += d.fdh_split_by_size[c * 4 + i] * SplitterSize(i);
+      ports += d.fdh_split_by_size[c * 5 + i] * SplitterSize(i);
       ++i;
     }
     ++c;
@@ -121,7 +121,7 @@ fn FdhCapacityInstalled(ref d: Design) -> i32 {
 // OLT line cards: full 16-port cards, then the remainder covered with the
 // minimum installed ports (rounded up to the 4-port granularity and filled
 // greedily from the largest card down) — the graduated-size rule again.
-fn OltCards(ref d: Design, ref count_by_size: array(i32, 3)) -> i32 {
+fn OltCards(ref d: Design, ref count_by_size: array(i32, 5)) -> i32 {
   let splitters: i32 = TotalSplitters(ref d);
   var i: i32 = 0;
   while (i < OltCardSizeCount()) {
@@ -148,7 +148,7 @@ fn OltCards(ref d: Design, ref count_by_size: array(i32, 3)) -> i32 {
 }
 
 fn OltPortsInstalled(ref d: Design) -> i32 {
-  var by_size: array(i32, 3);
+  var by_size: array(i32, 5);
   let card_total: i32 = OltCards(ref d, ref by_size);
   var ports: i32 = card_total * 0;
   var i: i32 = 0;
@@ -281,7 +281,7 @@ fn RunQa(ref d: Design) -> i32 {
     var cap: i32 = 0;
     var i: i32 = 0;
     while (i < SplitterSizeCount()) {
-      cap += d.fdh_split_by_size[c * 4 + i] * SplitterSize(i);
+      cap += d.fdh_split_by_size[c * 5 + i] * SplitterSize(i);
       ++i;
     }
     if (cap < d.cluster_take_units[c]) {
@@ -421,7 +421,7 @@ fn Report(ref d: Design) -> i64 {
   }
 
   let total_splitters: i32 = TotalSplitters(ref d);
-  var olt_by_size: array(i32, 3);
+  var olt_by_size: array(i32, 5);
   let olt_cards: i32 = OltCards(ref d, ref olt_by_size);
   let olt_chassis: i32 = CeilDiv(olt_cards, OltChassisCardSlots());
 
@@ -547,7 +547,7 @@ fn Report(ref d: Design) -> i64 {
     var count2: i32 = 0;
     var c3: i32 = 0;
     while (c3 < d.cluster_count) {
-      count2 += d.fdh_split_by_size[c3 * 4 + i];
+      count2 += d.fdh_split_by_size[c3 * 5 + i];
       ++c3;
     }
     if (count2 > 0) {

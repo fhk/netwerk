@@ -1106,18 +1106,27 @@ fn ProvisionSplitters(ref d: Design) {
     }
     d.cluster_take_units[c] = take;
 
+    // Splitter bank: full 1:32s, then the remainder covered by the
+    // minimum installed ports — rounded up to the smallest splitter's
+    // granularity and filled greedily from the largest that fits. Buying
+    // ONE covering splitter for the remainder stranded ports (26 ports
+    // demanded a 1:32 at 81%); 16+8+2 covers it exactly.
     let top_idx: i32 = SplitterSizeCount() - 1;
     let full: i32 = take / SplitterSize(top_idx);
     let rem: i32 = take % SplitterSize(top_idx);
-    d.fdh_split_by_size[c * 4 + top_idx] = full;
+    d.fdh_split_by_size[c * 5 + top_idx] = full;
     var count: i32 = full;
     if (rem > 0) {
-      var idx: i32 = 0;
-      while (idx < top_idx and SplitterSize(idx) < rem) {
-        ++idx;
+      var need: i32 = CeilDiv(rem, SplitterSize(0)) * SplitterSize(0);
+      var idx: i32 = top_idx;
+      while (need > 0) {
+        while (idx > 0 and SplitterSize(idx) > need) {
+          --idx;
+        }
+        d.fdh_split_by_size[c * 5 + idx] += 1;
+        ++count;
+        need -= SplitterSize(idx);
       }
-      d.fdh_split_by_size[c * 4 + idx] += 1;
-      ++count;
     }
     d.fdh_splitters[c] = count;
 
