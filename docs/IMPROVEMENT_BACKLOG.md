@@ -149,3 +149,52 @@ for deliberate, reviewed output changes (`BLESS=1`).
     scale with catalog granularity at small N, or whether the catalog
     needs smaller entries; keep the district's floor untouched either
     way. Then tighten room assertions for targets already met.
+
+## OPEN QUESTION — is `util_fdh_capacity >= 95%` reachable? (iter 007)
+
+Iteration 007 closed 10 of the 14 standing QA errors by adding catalog
+granularity that real vendors actually sell (12/24/48/96-unit FDH
+pedestals, 1- and 2-port OLT cards, a 1:2 splitter) and by giving the
+splitter bank a minimal-cover remainder fill (26 ports = 16+8+2 exactly,
+instead of one 1:32 at 81%). Terminal, splitter and OLT-card utilization
+now clear the floor on every fixture.
+
+The remaining 4 errors are all `util_fdh_capacity`, and they look
+**structurally unreachable, not merely unoptimized**:
+
+| fixture | units | smallest covering cabinet | utilization |
+|---|---|---|---|
+| s02_parallel_streets | 40 | 48 | 83.3% |
+| s04_culdesac | 40 | 48 | 83.3% |
+| s05_two_islands | 35 | 60 (2 areas) | 58.3% |
+| s03_grid5 | 155 | 288 | 53.8% |
+
+A serving area buys exactly ONE cabinet, so utilization is
+`units / smallest_catalog_size_at_or_above(units)`. Clearing 95% for 40
+units needs a 40-42 size; for 155 units a 155-163 size. A catalog that
+guarantees 95% for arbitrary demand needs sizes in geometric progression
+with ratio <= 1.0526 — roughly 40 sizes between 12 and 432, which is not
+real equipment. The parcel district passes at 99.2% only because
+clustering is free to *choose* ~432-unit areas; a fixed 40-premises town
+has no such freedom.
+
+The other three families are not analogous: they buy N small units and
+can always tile demand closely.
+
+Candidate resolutions (needs a decision — do NOT silently relax the
+scorer, that is how a campaign starts optimizing its own yardstick):
+  (a) Keep the gate; accept 4 permanent scenario errors as an honest
+      record of a catalog bound. Costs a fixed 4M in the composite.
+  (b) Replace the FDH *gate* with the condition the design actually
+      controls: "cabinet is the smallest catalog size covering the
+      area's units" (strictly enforced), and keep the percentage as a
+      reported-only metric. Arguably TIGHTER — it forbids any oversizing
+      beyond the minimum, even at 96% — but it does erase 4M of penalty,
+      so the ledger must show the score both ways on the switching
+      iteration.
+  (c) Make cabinet capacity a clustering objective (size serving areas
+      to catalog boundaries). Real, but only helps where cluster count
+      is a free variable — i.e. not the small scenarios.
+
+Recommendation: (b) with dual-scoring on the switching iteration, plus
+(c) as a separate district-side optimization.
