@@ -1,5 +1,5 @@
 design:
-  premises=9190 units=9919 serving_areas=23 terminals=1641
+  premises=9190 units=9919 serving_areas=23 terminals=1591
   co_node=373 olt_chassis=1 olt_cards=13 pon_ports_used=207
   area 0: fdh_node=358 premises=415 units=415 cabinet=432 splitters=9 feeder_m=1800
   area 1: fdh_node=834 premises=432 units=432 cabinet=432 splitters=9 feeder_m=3800
@@ -25,39 +25,39 @@ design:
   area 21: fdh_node=364 premises=432 units=432 cabinet=432 splitters=9 feeder_m=1100
   area 22: fdh_node=408 premises=206 units=432 cabinet=432 splitters=9 feeder_m=600
 utilization:
-  terminal_ports: 9190/9654 = 95.1%
+  terminal_ports: 9190/9624 = 95.4%
   splitter_ports: 6452/6608 = 97.6%
   fdh_capacity: 9919/9936 = 99.8%
   olt_card_ports: 207/208 = 99.5%
 bom:
   trench_soft qty=89500 m unit=$45.00 ext=$4027500.00
   trench_asphalt qty=400 m unit=$150.00 ext=$60000.00
-  dist_cable_12f qty=22200 m unit=$0.95 ext=$21090.00
-  dist_cable_24f qty=22500 m unit=$1.30 ext=$29250.00
-  dist_cable_48f qty=10400 m unit=$2.10 ext=$21840.00
-  dist_cable_96f qty=10700 m unit=$3.40 ext=$36380.00
-  dist_cable_144f qty=7200 m unit=$4.70 ext=$33840.00
-  dist_cable_288f qty=65300 m unit=$7.80 ext=$509340.00
+  dist_cable_12f qty=21900 m unit=$0.95 ext=$20805.00
+  dist_cable_24f qty=22600 m unit=$1.30 ext=$29380.00
+  dist_cable_48f qty=10800 m unit=$2.10 ext=$22680.00
+  dist_cable_96f qty=10500 m unit=$3.40 ext=$35700.00
+  dist_cable_144f qty=7000 m unit=$4.70 ext=$32900.00
+  dist_cable_288f qty=65500 m unit=$7.80 ext=$510900.00
   feeder_cable_12f qty=12600 m unit=$0.95 ext=$11970.00
   feeder_cable_24f qty=3000 m unit=$1.30 ext=$3900.00
   feeder_cable_48f qty=1600 m unit=$2.10 ext=$3360.00
   feeder_cable_96f qty=1000 m unit=$3.40 ext=$3400.00
   feeder_cable_144f qty=1100 m unit=$4.70 ext=$5170.00
-  drop_cable qty=332904 m unit=$1.50 ext=$499356.00
+  drop_cable qty=332993 m unit=$1.50 ext=$499489.50
   drop_assembly qty=9190 ea unit=$120.00 ext=$1102800.00
   fdh_cabinet_432 qty=23 ea unit=$2500.00 ext=$57500.00
   splitter_1_16 qty=1 ea unit=$120.00 ext=$120.00
   splitter_1_32 qty=206 ea unit=$180.00 ext=$37080.00
   terminal_2p qty=4 ea unit=$80.00 ext=$320.00
-  terminal_4p qty=436 ea unit=$120.00 ext=$52320.00
-  terminal_6p qty=935 ea unit=$150.00 ext=$140250.00
-  terminal_8p qty=225 ea unit=$180.00 ext=$40500.00
-  terminal_12p qty=41 ea unit=$250.00 ext=$10250.00
+  terminal_4p qty=402 ea unit=$120.00 ext=$48240.00
+  terminal_6p qty=918 ea unit=$150.00 ext=$137700.00
+  terminal_8p qty=176 ea unit=$180.00 ext=$31680.00
+  terminal_12p qty=91 ea unit=$250.00 ext=$22750.00
   olt_card_16p qty=13 ea unit=$1200.00 ext=$15600.00
   olt_port_optics qty=207 ea unit=$85.00 ext=$17595.00
 cost:
-  total_capex=$6740731.00
-  per_unit_passed=$679.57
+  total_capex=$6738539.50
+  per_unit_passed=$679.35
   trench_m=89900 cable_route_m=109200 sharing_x100=121
 qa:
   premises_served: ok
@@ -67,7 +67,7 @@ qa:
   splitter_capacity: ok
   route_length_budget: ok
   feeder_routed: ok
-  util_terminal_ports: 95.1% ok
+  util_terminal_ports: 95.4% ok
   util_splitter_ports: 97.6% ok
   util_fdh_capacity: 99.8% ok
   util_olt_card_ports: 99.5% ok

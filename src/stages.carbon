@@ -857,40 +857,6 @@ fn RouteDistribution(ref d: Design) {
 // Stage 6b — terminal merge/shrink repair (utilization floor)
 // ---------------------------------------------------------------------------
 
-// Best target terminal for premises p: same serving area, spare port below
-// the largest catalog size, within drop reach — fewest drop street
-// crossings first, then nearest (ties: lowest terminal id). `exclude` is
-// the terminal being dissolved or shrunk. TryDissolve's feasibility scan
-// must mirror this ranking exactly.
-fn BestTargetTerminal(ref d: Design, p: i32, exclude: i32) -> i32 {
-  var best: i32 = -1;
-  var best_cross: i32 = 2147483647;
-  var best_dist: i32 = 2147483647;
-  var u: i32 = 0;
-  while (u < d.term_count) {
-    // "Room" means a spare port within the terminal's CHOSEN size —
-    // growing an exactly-full 8-port to 9 would force a 12 and create
-    // waste where there was none.
-    if (u != exclude and d.term_cluster[u] == d.prem_cluster[p] and
-        d.term_ports_used[u] > 0 and
-        d.term_ports_used[u] < TerminalSize(d.term_size_idx[u])) {
-      let dd: i32 = DistM(d.prem_x[p], d.prem_y[p],
-                          d.node_x[d.term_node[u]], d.node_y[d.term_node[u]]);
-      if (dd <= MaxDropM()) {
-        let xc: i32 = CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
-                                         d.term_node[u]);
-        if (xc < best_cross or (xc == best_cross and dd < best_dist)) {
-          best_cross = xc;
-          best_dist = dd;
-          best = u;
-        }
-      }
-    }
-    ++u;
-  }
-  return best;
-}
-
 fn MovePremises(ref d: Design, p: i32, from: i32, to: i32) {
   d.prem_terminal[p] = to;
   d.prem_drop_len[p] = DistM(d.prem_x[p], d.prem_y[p],
@@ -903,15 +869,50 @@ fn MovePremises(ref d: Design, p: i32, from: i32, to: i32) {
 // Dissolves a terminal if every one of its premises fits on other
 // terminals within drop reach AND (unless `force`) the move is
 // scorer-positive: the hardware retired plus any under-4 penalties
-// cleared must exceed the street-crossing and drop-cable cost of the
-// relocated drops. The un-priced version silently traded ~4,900 street
-// crossings for utilization on the district. Returns true if emptied.
+// cleared must exceed the street-crossing, drop-cable and hardware-step
+// cost of the relocated drops. The un-priced version silently traded
+// ~4,900 street crossings for utilization on the district.
+//
+// Growth-aware (iter 006): in priced mode a target no longer needs a
+// spare port within its CHOSEN size — stepping it up the catalog
+// (4p -> 6p is $30) is just another cent line in the move price, and it
+// is what clears the geometry-forced under-4 strays whose neighbours sit
+// exactly full. Guard rail: the district lands exactly on the 95%
+// terminal-port utilization floor, so a priced dissolve must keep the
+// aggregate INSTALLED-port delta <= 0 (retired ports must cover any
+// growth) or the floor repair would buy the ports back with forced
+// dissolves. Force mode stays strictly no-growth: its whole purpose is
+// shrinking installed ports, and no-growth keeps its delta = -size(t).
+// Every member's chosen target is recorded during the pricing scan and
+// the commit replays the record, so scan and commit cannot diverge.
+// Returns true if emptied.
 fn TryDissolve(ref d: Design, t: i32, force: bool) -> bool {
-  // Feasibility and pricing first, against a scratch copy of port counts.
+  let allow_grow: bool = not force;
+  // Members of t, in premises-id order (a terminal serves at most 12).
+  var mp: array(i32, 12);
+  var mn: i32 = 0;
+  var p0: i32 = 0;
+  while (p0 < d.prem_count) {
+    if (d.prem_terminal[p0] == t) {
+      if (mn >= 12) {
+        return false;  // over-full terminal; refuse rather than misprice
+      }
+      mp[mn] = p0;
+      ++mn;
+    }
+    ++p0;
+  }
+  if (mn == 0) {
+    return false;
+  }
+  // Pricing scan against scratch copies of every terminal's fill and
+  // size (both evolve as members are assigned).
   var scratch: array(i32, 4096);
+  var ssize: array(i32, 4096);
   var u: i32 = 0;
   while (u < d.term_count) {
     scratch[u] = d.term_ports_used[u];
+    ssize[u] = d.term_size_idx[u];
     ++u;
   }
   // Gain: retired hardware, plus 100000 if t itself is an under-4 stray,
@@ -921,62 +922,94 @@ fn TryDissolve(ref d: Design, t: i32, force: bool) -> bool {
     gain += 100000;
   }
   var cost: i64 = 0;
-  var p: i32 = 0;
-  while (p < d.prem_count) {
-    if (d.prem_terminal[p] == t) {
-      // Mirrors BestTargetTerminal's ranking (crossings, then distance)
-      // against the scratch counts, so the commit greedy below always
-      // finds the same targets the feasibility scan did. Lexicographic
-      // (crossings, distance) is exactly the cents order: one crossing
-      // (50000) outweighs any in-reach drop delta (<= 150 m * 150 c/m).
-      var best: i32 = -1;
-      var best_cross: i32 = 2147483647;
-      var best_dist: i32 = 2147483647;
-      var v: i32 = 0;
-      while (v < d.term_count) {
-        if (v != t and d.term_cluster[v] == d.prem_cluster[p] and
-            scratch[v] > 0 and scratch[v] < TerminalSize(d.term_size_idx[v])) {
+  var installed_delta: i64 = 0 - (TerminalSize(d.term_size_idx[t]) as i64);
+  var chosen: array(i32, 12);
+  var mi: i32 = 0;
+  while (mi < mn) {
+    let p: i32 = mp[mi];
+    // Cheapest target in cents: 50000/crossing + hardware step (0 while
+    // the target still has an in-size spare port) + $1.50/m drop.
+    // Ties: fewer crossings, then nearer, then lower terminal id.
+    var best: i32 = -1;
+    var best_cost: i64 = 0;
+    var best_step: i64 = 0;
+    var best_cross: i32 = 0;
+    var best_dist: i32 = 0;
+    var v: i32 = 0;
+    while (v < d.term_count) {
+      if (v != t and d.term_cluster[v] == d.prem_cluster[p] and
+          scratch[v] > 0 and scratch[v] < 12) {
+        var step: i64 = 0;
+        var ok: bool = true;
+        if (scratch[v] >= TerminalSize(ssize[v])) {
+          if (allow_grow) {
+            var gidx: i32 = ssize[v];
+            while (gidx < TerminalSizeCount() - 1 and
+                   TerminalSize(gidx) < scratch[v] + 1) {
+              ++gidx;
+            }
+            step = TerminalCost(gidx) - TerminalCost(ssize[v]);
+          } else {
+            ok = false;
+          }
+        }
+        if (ok) {
           let dd: i32 = DistM(d.prem_x[p], d.prem_y[p],
                               d.node_x[d.term_node[v]],
                               d.node_y[d.term_node[v]]);
           if (dd <= MaxDropM()) {
             let xc: i32 = CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
                                              d.term_node[v]);
-            if (xc < best_cross or (xc == best_cross and dd < best_dist)) {
+            let mc: i64 = 50000 * (xc as i64) + step +
+                          DropCablePerM() * (dd as i64);
+            if (best == -1 or mc < best_cost or
+                (mc == best_cost and
+                 (xc < best_cross or
+                  (xc == best_cross and dd < best_dist)))) {
+              best = v;
+              best_cost = mc;
+              best_step = step;
               best_cross = xc;
               best_dist = dd;
-              best = v;
             }
           }
         }
-        ++v;
       }
-      if (best == -1) {
-        return false;
-      }
-      let old_cross: i32 = CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
-                                              d.term_node[t]);
-      cost += 50000 * ((best_cross - old_cross) as i64) +
-              DropCablePerM() * ((best_dist - d.prem_drop_len[p]) as i64);
-      if (scratch[best] == 3) {
-        gain += 100000;  // target crosses the under-4 line at 4
-      }
-      scratch[best] += 1;
+      ++v;
     }
-    ++p;
+    if (best == -1) {
+      return false;
+    }
+    let old_cross: i32 = CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
+                                            d.term_node[t]);
+    cost += 50000 * ((best_cross - old_cross) as i64) + best_step +
+            DropCablePerM() * ((best_dist - d.prem_drop_len[p]) as i64);
+    if (scratch[best] == 3) {
+      gain += 100000;  // target crosses the under-4 line at 4
+    }
+    scratch[best] += 1;
+    if (scratch[best] > TerminalSize(ssize[best])) {
+      var nidx: i32 = ssize[best];
+      while (nidx < TerminalSizeCount() - 1 and
+             TerminalSize(nidx) < scratch[best]) {
+        ++nidx;
+      }
+      installed_delta +=
+          (TerminalSize(nidx) - TerminalSize(ssize[best])) as i64;
+      ssize[best] = nidx;
+    }
+    chosen[mi] = best;
+    ++mi;
   }
-  if (not force and cost >= gain) {
+  if (not force and (cost >= gain or installed_delta > 0)) {
     return false;
   }
-  // Feasible (and priced, unless forced): commit with the same greedy,
-  // against the live counts.
-  p = 0;
-  while (p < d.prem_count) {
-    if (d.prem_terminal[p] == t) {
-      let target: i32 = BestTargetTerminal(ref d, p, t);
-      MovePremises(ref d, p, t, target);
-    }
-    ++p;
+  // Feasible (and priced, unless forced): replay the recorded choices.
+  var ci: i32 = 0;
+  while (ci < mn) {
+    MovePremises(ref d, mp[ci], t, chosen[ci]);
+    CloseTerminal(ref d, chosen[ci]);
+    ++ci;
   }
   return true;
 }
