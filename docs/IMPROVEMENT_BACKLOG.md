@@ -62,13 +62,56 @@ for deliberate, reviewed output changes (`BLESS=1`).
    currently blocked). Candidates: cross-cluster dissolve targets
    (needs per-cluster fiber bookkeeping), or a swap pass (2 strays merge
    at a middle node neither currently hosts).
-3. **Drop 2-opt / local-search reassignment to uncross drops.** Down to
-   669 drop-drop crossings after iter 004 (1,300 -> 669 as a free
-   side-effect of node-centric packing). When two drops properly cross,
-   swapping their terminal assignments never lengthens the total by more
-   than the crossing detour; iterate pairwise swaps (grid-hashed
-   candidates, deterministic order) until fixpoint, respecting port
-   capacity and the 150 m rule. ProperCross/the edge grid are reusable.
+3. ~~**Drop 2-opt / local-search reassignment to uncross drops.**~~ DONE
+   iter 009, total score -23,634,550 (1,001,173,710 -> 977,539,160), all
+   of it on the district and roughly TWICE research.md 5.2's 8-13M band.
+   New stage 9b `UncrossDrops` (stages.carbon), run once from `RunDesign`
+   after the sweep decision: scan all drop pairs in ascending premises id,
+   and for each PROPER crossing price the full scorer delta of swapping
+   the two terminal assignments — drop cable, both re-routed drops'
+   street crossings via `CountDropCrossings`, and every drop-drop pair
+   containing either premises — accepting only a strictly negative delta
+   with both new drops inside 150 m and the optical route budget. 4 scans
+   to fixpoint, 388 swaps. District: drop-drop 692 -> 147, street
+   crossings 2,252 -> 2,027 (the swap that shortens a drop usually
+   un-crosses a street too), drop cable 194,816 -> 184,919 m, capex
+   -1,484,550. Terminals, under-4 (487), trench, rings, sharing and every
+   utilization family are IDENTICAL by construction — the swap preserves
+   each terminal's port count, so this is the one pass that cannot spend
+   budget elsewhere. Determinism verified byte-identical.
+
+   **The v1 restriction research.md asked for was the binding constraint,
+   and it was unnecessary.** Section 5.2 says to allow only same-serving-
+   area swaps in v1 because cross-area moves "need the per-cluster fiber
+   bookkeeping that does not exist yet" (item 2). Measured with the
+   restriction in place: only 55 of 692 crossings cleared, and 579 of the
+   residual 637 were cross-area pairs — i.e. 84% of the prize sat behind
+   the restriction. It does not apply to SWAPS: item 2's bookkeeping
+   problem belongs to the one-way move (dissolve), which changes
+   `cluster_units` and everything derived from it. An equal-unit exchange
+   leaves `cluster_units`, `cluster_prems`, `cluster_take_units`, the
+   cabinet size and each cluster's per-(cluster, node) fiber demand
+   invariant, so the pass may rewrite `prem_cluster` freely. Lifting the
+   restriction took the gain from ~1.3M to 23.6M. Generalizable lesson:
+   before accepting a "needs prerequisite X" caveat, check whether the
+   move class is balanced — exchanges are far cheaper to make safe than
+   one-way moves.
+
+   Two implementation notes worth keeping:
+   (a) The pass runs ONCE, after the two-sweep decision, not inside
+       `DesignSweep`. It is the only stage that rewrites `prem_cluster`,
+       which both sweeps inherit; running it inside a sweep would break
+       the invariant that the pi=0 fallback re-run reproduces sweep 1
+       bit-for-bit. Reported `sweep_score` is therefore pre-uncrossing on
+       both sides — a fair comparison, just not the final number.
+   (b) The uncrossing lemma alone is not a licence to swap: a shorter
+       drop can cross a street the longer one avoided (50,000) and either
+       new drop can cross a THIRD drop (20,000), so all three terms are
+       priced. 147 crossings survive that pricing, 90 of them cross-area
+       — those are genuinely priced out or blocked by the 150 m / route
+       rules, not blocked by scope. The remaining 147 x 20,000 = 2.94M is
+       the ceiling on any further uncrossing work; the min-cost-flow
+       Tier-2 solve of 5.2 should be sized against that, not against 692.
 3b. **Street-crossing floor analysis (iter 004 evidence).** 2,229
    district crossings remain; the all-zero-crossing grouping bound says
    only ~3,027 of 6,719 premises fit in all-zero groups of 4..12, so a
