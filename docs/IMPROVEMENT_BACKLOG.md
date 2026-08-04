@@ -200,13 +200,86 @@ for deliberate, reviewed output changes (`BLESS=1`).
    `sharing_ratio` (cable_route_m / trench_m) should rise as duplicates
    collapse. Largely subsumed by iter 002's forest re-route and iter
    005's global Steiner tree (sharing_x100 113 -> 120 district).
-6c. **Steiner tree quality gap.** The shortest-path heuristic is a 2-approx;
-   node insertion order = heap pop order. Candidate polish: key-path
-   improvement (remove a tree path between two branch/required nodes,
-   reconnect the two components by their true cheapest path) run to
-   fixpoint — typically shaves another 1-3% trench. Evidence: probe
-   scripts in scratchpad reached 123,670 m with pure SPH on the district;
-   engine landed 123,125 m; MST-lower-bound not yet computed.
+6c. ~~**Steiner tree quality gap — key-path local search.**~~ DONE iter
+   011 (research.md 3.2 / 5.5b, appendix A ranked #2). Total
+   **-14,811,785** (894,344,640 -> 879,532,855), all of it on the
+   district; every scenario byte-identical (their trees are 2-38 key
+   paths and already optimal, 0 exchanges each). New stage 9a in
+   `stages.carbon`, inserted between `DeloopTrench` phase 1 and the fiber
+   re-route: enumerate every key path (maximal tree path whose interior
+   is all non-key degree-2 nodes), try them in decreasing (cents, then
+   smallest first-edge id) order, and for each one delete it, BFS the two
+   components it leaves, and multi-source-Dijkstra the cheapest
+   reconnection over the FULL road graph in trench cents. Accept only
+   strictly cheaper, re-validate candidates at trial time, repeat to
+   fixpoint.
+
+   **MEASURED, with the engine's own isqrt lengths (appendix A D3's
+   mandatory haircut):** 4 rounds, 200 exchanges, 2,112 key paths at the
+   fixpoint. Tree **119,713 -> 116,666 m (-3,047 m, -2.55%)** and
+   **589,959,000 -> 576,436,500 civil cents (-13,522,500, -2.29%)**.
+   District capex fell more than that, -14,811,785, because a leaner tree
+   also shortens cable (route 144,316 -> 140,191 m). Penalties are
+   untouched by construction — crossings 1,509, drop-drop 72, under-4
+   213, terminals 1,530, rings 0, all identical to iter 010.
+
+   **This settles appendix A's D2**, which is the reason the item was
+   ranked where it was. Section 2's Wong dual ascent certifies at most
+   25,552,500 cents of trench slack at the fixed required set; section
+   3.2 claimed -15.5M from key-path alone and the reviewer flagged that
+   the two cannot both be right. Measured: **-13,522,500, i.e. 52.9% of
+   the entire certified slack from one neighbourhood.** Both parties were
+   partly wrong in the direction the reviewer predicted — section 3.2's
+   -$155,265 was 13% inflated by `round(hypot)` edge lengths (D3 was
+   worth exactly what it claimed), and section 2's bound is nonetheless
+   too loose to be a useful ceiling, since one Tier-1 local search eats
+   half of it and the remaining trench-quality family (key-VERTEX
+   elimination, SD reductions, multistart) is untouched. Read 4.22% as
+   "at least this much cannot be certified away", never as a distance to
+   optimum.
+
+   Three implementation notes worth carrying:
+   (a) **The route-length guard cost nothing, and its premise is stale.**
+   Appendix A E6/D2 made the `route_length_budget` check mandatory
+   because backlog 5 recorded the worst CO->premises route at 18,060 m of
+   20,000 m. It is implemented (whole-pass rollback to the phase-1 tree,
+   `kp_rollback=1`) and it never fires: the worst route is now **11,718
+   m**, 8.3 km of headroom. Iter 010's exact assignment is what did that
+   — contiguous serving areas mean nobody is routed across the district
+   any more. The WATCH on backlog 5 should be re-read at 11,718, not
+   18,060, before anyone builds a length-constrained Steiner variant.
+   (b) **The tree invariant is asserted, not assumed.** Removing a path
+   and adding a path between exactly two components preserves the tree,
+   so rings stay 0 by construction — but a silent ring costs 500,000, so
+   `KpTreeOk` BFSes from the CO and checks |E| == |V|-1 plus every
+   required node inside, with its own rollback (`kp_rollback=2`). Never
+   fired.
+   (c) **Second-order effect on the ConFL price.** A leaner tree makes
+   reaching a new node dearer: `pi_v` median 85,500 -> 90,000 and nodes
+   over 50k 9,413 -> 9,548. Iter 008's measured ~80-90k coefficient still
+   holds, at the top of its band.
+
+   Cost: district runtime 18 s -> 36 s (the search runs inside every
+   sweep). The hot spot is the two component BFSes plus the O(node_count)
+   `DijkstraReset` per trial, not the reconnection itself. A stamped
+   Dijkstra reset would roughly halve it. One micro-optimization was
+   tried and REVERTED: settling component A's ~5,800 zero-cost sources
+   directly instead of pushing them through the heap saved 3 s but
+   changed prev-edge tie-breaks into an equal-trench-cost tree with
+   17,375 cents more cable. Equal-cost Steiner trees are not equal
+   designs — the cable layer breaks the tie, and it is not neutral.
+
+6d. **Next on the Steiner line, in order.** (a) **Key-vertex
+   elimination** — research.md 5.5(b) argues it matters more than
+   key-path on a lattice, because SPH creates spurious degree-3 Steiner
+   vertices where two corridors nearly-but-not-quite coincide; the tree
+   still has 2,112 key paths, so the branch structure is rich. Same
+   machinery, remove a key VERTEX and re-solve the small Steiner instance
+   over its incident key paths' endpoints. (b) **Degree-2 chain
+   contraction and the SD test** (5.5a) — exact, and the runtime dividend
+   would pay for (a) and for a second Lloyd round (7b) at the same time.
+   (c) Multistart SPH from several roots with elite recombination (5.5c);
+   deterministic given a fixed root order, but 8x the tree build.
 6b. ~~**Terminal-off-trench modeling gap (discovered iter 002).**~~
    FIXED iter 004: terminals are packed first, the distribution tree's
    demand nodes ARE the terminal nodes (unit-weighted), and DeloopTrench

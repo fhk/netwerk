@@ -15,3 +15,4 @@ Composite score (lower is better) summed over all scenarios and the parcel distr
 | 008 | ConFL trench price pi_v inside the terminal-packing move cost (two-sweep) | 1001173710 | 822033710 | 2252 | 692 | 487 | 0 | 4 |
 | 009 | priced 2-opt drop uncrossing: load-preserving swaps, cross-area allowed | 977539160 | 820549160 | 2027 | 147 | 487 | 0 | 4 |
 | 010 | exact premises->FDH assignment: Lloyd re-seed from the medoids + negative-cycle transportation repair | 894344640 | 792154640 | 1509 | 72 | 213 | 0 | 4 |
+| 011 | key-path local search on the trench tree: strictly-cheaper path exchange to fixpoint | 879532855 | 777342855 | 1509 | 72 | 213 | 0 | 4 |

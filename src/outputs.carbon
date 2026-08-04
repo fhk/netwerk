@@ -985,4 +985,31 @@ fn PrintSweeps(ref d: Design) {
   Core.PrintStr(" residual_xarea=");
   PrintInt(d.ux_residual_xarea);
   NL();
+  // Stage 9a: what key-path exchange took off the constructed Steiner tree.
+  // before/after are the TREE's meters and civil cents (phase 4 then prunes
+  // to the trench actually reported), so the cents delta is the direct,
+  // isqrt-exact answer to research.md 3.2 — and to appendix A's D2, which
+  // asks whether that section's -15.5M or section 2's 25.55M dual slack
+  // ceiling is the one telling the truth. rollback is the undo counter:
+  // 1 = an exchange pushed a CO->premises route past MaxRouteM and the
+  // whole pass was reverted, 2 = the tree invariant failed (must be 0).
+  Core.PrintStr("  keypath_exchange: rounds=");
+  PrintInt(d.kp_rounds);
+  Core.PrintStr(" moves=");
+  PrintInt(d.kp_moves);
+  Core.PrintStr(" paths=");
+  PrintInt(d.kp_paths);
+  Core.PrintStr(" tree_m=");
+  PrintInt(d.kp_trench_before);
+  Core.PrintStr("->");
+  PrintInt(d.kp_trench_after);
+  Core.PrintStr(" cents=");
+  PrintI64(d.kp_cents_before);
+  Core.PrintStr("->");
+  PrintI64(d.kp_cents_after);
+  Core.PrintStr(" rollback=");
+  PrintInt(d.kp_rollback);
+  Core.PrintStr(" route_max_m=");
+  PrintInt(d.kp_route_max);
+  NL();
 }

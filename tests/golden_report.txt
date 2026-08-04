@@ -73,6 +73,7 @@ sweeps:
   priced_sweep_terminals: priced=0 over_50k=0 spur_cents=0
   sweep_score: unpriced=547518050 priced=547518050 kept=1
   uncross_2opt: swaps=7 scans=2 residual=12 residual_xarea=12
+  keypath_exchange: rounds=1 moves=0 paths=899 tree_m=89900->89900 cents=408750000->408750000 rollback=0 route_max_m=15146
 qa:
   premises_served: ok
   drop_length: ok

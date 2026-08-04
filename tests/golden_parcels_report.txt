@@ -1,42 +1,42 @@
 design:
   premises=6719 units=6719 serving_areas=16 terminals=1530
   co_node=4472 olt_chassis=1 olt_cards=12 pon_ports_used=172
-  area 0: fdh_node=776 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4439
-  area 1: fdh_node=15443 premises=239 units=239 cabinet=288 splitters=7 feeder_m=7973
+  area 0: fdh_node=776 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4384
+  area 1: fdh_node=15443 premises=239 units=239 cabinet=288 splitters=7 feeder_m=7503
   area 2: fdh_node=4472 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
-  area 3: fdh_node=13187 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5037
-  area 4: fdh_node=686 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4072
-  area 5: fdh_node=12551 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4453
-  area 6: fdh_node=6095 premises=432 units=432 cabinet=432 splitters=11 feeder_m=692
-  area 7: fdh_node=8091 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2293
-  area 8: fdh_node=9931 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3810
-  area 9: fdh_node=11824 premises=432 units=432 cabinet=432 splitters=11 feeder_m=6250
-  area 10: fdh_node=5500 premises=432 units=432 cabinet=432 splitters=11 feeder_m=870
-  area 11: fdh_node=9345 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3720
-  area 12: fdh_node=5416 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2732
-  area 13: fdh_node=1816 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3708
-  area 14: fdh_node=13771 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5308
-  area 15: fdh_node=12426 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5005
+  area 3: fdh_node=13187 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4874
+  area 4: fdh_node=686 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3926
+  area 5: fdh_node=12551 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4124
+  area 6: fdh_node=6095 premises=432 units=432 cabinet=432 splitters=11 feeder_m=660
+  area 7: fdh_node=8091 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2217
+  area 8: fdh_node=9931 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3523
+  area 9: fdh_node=11824 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5780
+  area 10: fdh_node=5500 premises=432 units=432 cabinet=432 splitters=11 feeder_m=838
+  area 11: fdh_node=9345 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3582
+  area 12: fdh_node=5416 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2700
+  area 13: fdh_node=1816 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3570
+  area 14: fdh_node=13771 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4936
+  area 15: fdh_node=12426 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4722
 utilization:
   terminal_ports: 6719/7072 = 95.0%
   splitter_ports: 4371/4386 = 99.6%
   fdh_capacity: 6719/6768 = 99.2%
   olt_card_ports: 172/172 = 100.0%
 bom:
-  trench_soft qty=114832 m unit=$45.00 ext=$5167440.00
-  trench_asphalt qty=4881 m unit=$150.00 ext=$732150.00
-  dist_cable_12f qty=50027 m unit=$0.95 ext=$47525.65
+  trench_soft qty=111767 m unit=$45.00 ext=$5029515.00
+  trench_asphalt qty=4899 m unit=$150.00 ext=$734850.00
+  dist_cable_12f qty=48347 m unit=$0.95 ext=$45929.65
   dist_cable_24f qty=17685 m unit=$1.30 ext=$22990.50
-  dist_cable_48f qty=13729 m unit=$2.10 ext=$28830.90
-  dist_cable_96f qty=13014 m unit=$3.40 ext=$44247.60
-  dist_cable_144f qty=9104 m unit=$4.70 ext=$42788.80
-  dist_cable_288f qty=20537 m unit=$7.80 ext=$160188.60
-  feeder_cable_12f qty=10547 m unit=$0.95 ext=$10019.65
-  feeder_cable_24f qty=6897 m unit=$1.30 ext=$8966.10
-  feeder_cable_48f qty=4563 m unit=$2.10 ext=$9582.30
-  feeder_cable_96f qty=2060 m unit=$3.40 ext=$7004.00
+  dist_cable_48f qty=13814 m unit=$2.10 ext=$29009.40
+  dist_cable_96f qty=12510 m unit=$3.40 ext=$42534.00
+  dist_cable_144f qty=8569 m unit=$4.70 ext=$40274.30
+  dist_cable_288f qty=19837 m unit=$7.80 ext=$154728.60
+  feeder_cable_12f qty=10318 m unit=$0.95 ext=$9802.10
+  feeder_cable_24f qty=6331 m unit=$1.30 ext=$8230.30
+  feeder_cable_48f qty=4356 m unit=$2.10 ext=$9147.60
+  feeder_cable_96f qty=2016 m unit=$3.40 ext=$6854.40
   feeder_cable_144f qty=290 m unit=$4.70 ext=$1363.00
-  feeder_cable_288f qty=246 m unit=$7.80 ext=$1918.80
+  feeder_cable_288f qty=214 m unit=$7.80 ext=$1669.20
   drop_cable qty=171662 m unit=$1.50 ext=$257493.00
   drop_assembly qty=6719 ea unit=$120.00 ext=$806280.00
   fdh_cabinet_288 qty=1 ea unit=$1800.00 ext=$1800.00
@@ -56,16 +56,17 @@ bom:
   olt_card_16p qty=10 ea unit=$1200.00 ext=$12000.00
   olt_port_optics qty=172 ea unit=$85.00 ext=$14620.00
 cost:
-  total_capex=$7638118.90
-  per_unit_passed=$1136.79
-  trench_m=119713 cable_route_m=144316 sharing_x100=120
+  total_capex=$7490001.05
+  per_unit_passed=$1114.74
+  trench_m=116666 cable_route_m=140191 sharing_x100=120
 sweeps:
   assignment_m: seeds=9824970 lloyd=7685929 exact=6009457 cycles=1400 moved=3206 stop=0
-  trench_price_cents: min=0 median=85500 max=1669500 nodes_over_50k=9413
-  trench_price_candidates: n=15668 median=85500 over_50k=9413
+  trench_price_cents: min=0 median=90000 max=1629000 nodes_over_50k=9548
+  trench_price_candidates: n=15668 median=90000 over_50k=9548
   priced_sweep_terminals: priced=0 over_50k=0 spur_cents=0
-  sweep_score: unpriced=780997065 priced=777159090 kept=2
+  sweep_score: unpriced=766774170 priced=762347305 kept=2
   uncross_2opt: swaps=102 scans=3 residual=72 residual_xarea=26
+  keypath_exchange: rounds=4 moves=200 paths=2112 tree_m=119713->116666 cents=589959000->576436500 rollback=0 route_max_m=11718
 qa:
   premises_served: ok
   drop_length: ok

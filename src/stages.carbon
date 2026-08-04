@@ -1614,6 +1614,501 @@ fn ForestBfs(ref d: Design, root: i32) {
   d.heap_size = 0;
 }
 
+// ---------------------------------------------------------------------------
+// Stage 9a — key-path local search on the trench tree (iter 011)
+//
+// research.md 3.2 / 5.5(b). DeloopTrench phase 1 is the Takahashi-Matsuyama
+// shortest-path Steiner heuristic: required nodes are attached one at a time,
+// in heap-pop order, and a corridor opened early to reach one terminal is
+// never revisited once a later, cheaper corridor makes it redundant. That
+// order is a construction artefact, and key-path exchange is precisely its
+// repair — the classic neighbourhood of Uchoa & Werneck (ALENEX 2010).
+//
+// A node is KEY when it is required or its tree degree is not 2; a KEY PATH
+// is a maximal tree path whose interior nodes are all non-key degree-2
+// nodes. Deleting one splits the tree into exactly two components A and B
+// (its interior falls out entirely — both of each interior node's edges just
+// went), so reconnecting A to B by the cheapest path in the FULL road graph
+// restores a tree: rings stay 0 by construction, and phases 2-4 need no
+// change. Accept only strictly cheaper reconnections, so the pass is a
+// strictly decreasing non-negative integer objective and terminates.
+// ---------------------------------------------------------------------------
+
+// Civil cost of opening one road edge — the objective the tree is built
+// against, and the same expression DeloopTrench phase 1 relaxes on.
+fn TrenchEdgeCents(ref d: Design, e: i32) -> i64 {
+  return (d.edge_len[e] as i64) * TrenchCostPerM(d.edge_surface[e]);
+}
+
+// Far endpoint of edge `e` seen from `v`. By edge id, not node id, so
+// parallel edges between the same pair stay distinguishable.
+fn KpOther(ref d: Design, e: i32, v: i32) -> i32 {
+  if (d.edge_from[e] == v) {
+    return d.edge_to[e];
+  }
+  return d.edge_from[e];
+}
+
+// Tree degree of every node under forest_edge. Rebuilt whole between rounds;
+// exchanges keep it current incrementally.
+fn KpRefreshDegrees(ref d: Design) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.kp_deg[n] = 0;
+    ++n;
+  }
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    if (d.forest_edge[e]) {
+      ++d.kp_deg[d.edge_from[e]];
+      ++d.kp_deg[d.edge_to[e]];
+    }
+    ++e;
+  }
+}
+
+fn KpIsKey(ref d: Design, v: i32) -> bool {
+  return d.kp_req[v] or d.kp_deg[v] != 2;
+}
+
+// Walks the maximal degree-2 chain leaving key node `a` along tree edge `e0`.
+// Fills kp_edge[0..kp_len) and kp_cost, and returns the far key endpoint —
+// or -1 when the chain is not a usable key path (edge already gone, chain
+// longer than the buffer, dangling). In a tree the walk cannot revisit a
+// node, so it always terminates at a key node.
+fn KpWalk(ref d: Design, a: i32, e0: i32) -> i32 {
+  if (not d.forest_edge[e0]) {
+    return -1;
+  }
+  d.kp_len = 0;
+  d.kp_cost = 0;
+  var prev: i32 = a;
+  var e: i32 = e0;
+  while (d.kp_len < 1024) {
+    d.kp_edge[d.kp_len] = e;
+    ++d.kp_len;
+    d.kp_cost += TrenchEdgeCents(ref d, e);
+    let v: i32 = KpOther(ref d, e, prev);
+    if (KpIsKey(ref d, v)) {
+      return v;
+    }
+    // Interior node: degree 2 and non-required, so exactly one tree edge
+    // other than the one we arrived on continues the chain.
+    var it: i32 = d.adj_head[v];
+    var nxt: i32 = -1;
+    while (it != -1) {
+      let ce: i32 = d.adj_edge[it];
+      if (d.forest_edge[ce] and ce != e) {
+        nxt = ce;
+        break;
+      }
+      it = d.adj_next[it];
+    }
+    if (nxt == -1) {
+      return -1;
+    }
+    prev = v;
+    e = nxt;
+  }
+  return -1;  // chain longer than the buffer: leave this path alone
+}
+
+// BFS from `root` over the current forest edges, tagging every reached node
+// with (kp_stamp, side). heap_node is the FIFO, exactly as ForestBfs uses it.
+// The stamp is what makes this cheap: no O(node_count) reset per trial.
+// Returns the number of nodes tagged, and for side 1 leaves the node list in
+// seed_dist[32768..] so the reconnection can seed its sources in O(|A|).
+fn KpMarkComponent(ref d: Design, root: i32, side: i32) -> i32 {
+  let tag: i32 = d.kp_stamp * 4 + side;
+  var head: i32 = 0;
+  var tail: i32 = 0;
+  d.kp_comp[root] = tag;
+  d.heap_node[tail] = root;
+  ++tail;
+  while (head < tail) {
+    let u: i32 = d.heap_node[head];
+    ++head;
+    if (side == 1) {
+      d.seed_dist[32768 + head - 1] = u;
+    }
+    var a: i32 = d.adj_head[u];
+    while (a != -1) {
+      let e: i32 = d.adj_edge[a];
+      let v: i32 = d.adj_to[a];
+      if (d.forest_edge[e] and d.kp_comp[v] != tag) {
+        d.kp_comp[v] = tag;
+        d.heap_node[tail] = v;
+        ++tail;
+      }
+      a = d.adj_next[a];
+    }
+  }
+  d.heap_size = 0;
+  return tail;
+}
+
+// Cheapest reconnection of component A to component B over the WHOLE road
+// graph: multi-source Dijkstra with every A node a zero-cost source, edges
+// already in the tree free, everything else at full civil cost. Settling the
+// first B node gives the cheapest A-B path, and the scan is pruned at `limit`
+// because only a strictly cheaper path can be accepted. Returns that B node,
+// or -1. The prev chain of the returned node is a simple path whose interior
+// meets neither A (those are sources, never relaxed below 0) nor B (we stop
+// at the FIRST settled B node), so splicing it in keeps the tree a tree.
+fn KpReconnect(ref d: Design, a_count: i32, limit: i64) -> i32 {
+  let tag_b: i32 = d.kp_stamp * 4 + 2;
+  DijkstraReset(ref d);
+  var i: i32 = 0;
+  while (i < a_count) {
+    AddSource(ref d, d.seed_dist[32768 + i]);
+    ++i;
+  }
+  while (d.heap_size > 0) {
+    let u: i32 = HeapPop(ref d);
+    if (d.visited[u]) {
+      continue;
+    }
+    d.visited[u] = true;
+    if (d.dist[u] >= limit) {
+      return -1;  // everything still reachable costs at least as much
+    }
+    if (d.kp_comp[u] == tag_b) {
+      return u;
+    }
+    var a: i32 = d.adj_head[u];
+    while (a != -1) {
+      let ce: i32 = d.adj_edge[a];
+      let v: i32 = d.adj_to[a];
+      var wgt: i64 = 0;
+      if (not d.forest_edge[ce]) {
+        wgt = TrenchEdgeCents(ref d, ce);
+      }
+      let nd: i64 = d.dist[u] + wgt;
+      if (nd < d.dist[v]) {
+        d.dist[v] = nd;
+        d.prev_node[v] = u;
+        d.prev_edge[v] = ce;
+        HeapPush(ref d, v);
+      }
+      a = d.adj_next[a];
+    }
+  }
+  return -1;
+}
+
+// Splices the reconnection path (prev chain from `stop` back to component A)
+// into the tree, keeping kp_deg current.
+fn KpApplyPath(ref d: Design, stop: i32) {
+  let tag_a: i32 = d.kp_stamp * 4 + 1;
+  var w: i32 = stop;
+  while (d.kp_comp[w] != tag_a and d.prev_edge[w] != -1) {
+    let pe: i32 = d.prev_edge[w];
+    d.forest_edge[pe] = true;
+    ++d.kp_deg[d.edge_from[pe]];
+    ++d.kp_deg[d.edge_to[pe]];
+    w = d.prev_node[w];
+  }
+}
+
+// One improvement round: enumerate every key path, try them in decreasing
+// cost order (ties -> smallest first-edge id, the order research.md 3.2
+// measured), and swap in any strictly cheaper reconnection. Candidates are
+// re-validated at trial time because an earlier exchange in the same round
+// may have reshaped the tree under them. Returns the exchanges accepted.
+fn KpRound(ref d: Design) -> i32 {
+  KpRefreshDegrees(ref d);
+  var cnt: i32 = 0;
+  var a: i32 = 0;
+  while (a < d.node_count) {
+    if (d.kp_deg[a] > 0 and KpIsKey(ref d, a)) {
+      var it: i32 = d.adj_head[a];
+      while (it != -1) {
+        let e: i32 = d.adj_edge[it];
+        if (d.forest_edge[e] and cnt < 8192) {
+          // Each key path is seen once from each end; keep the a < b copy.
+          let b: i32 = KpWalk(ref d, a, e);
+          if (b > a) {
+            d.seed_dist[cnt] = a;
+            d.seed_dist[8192 + cnt] = e;
+            d.seed_dist[16384 + cnt] = d.kp_cost as i32;
+            d.seed_dist[24576 + cnt] = cnt;
+            ++cnt;
+          }
+        }
+        it = d.adj_next[it];
+      }
+    }
+    ++a;
+  }
+  d.kp_paths = cnt;
+
+  // Shell sort (Knuth gaps) on the order array: decreasing cents, ties by
+  // smallest first-edge id. Edge ids are unique per key path, so this is a
+  // total order — the trial sequence is identical on every run.
+  var gap: i32 = 1;
+  while (gap * 3 + 1 < cnt) {
+    gap = gap * 3 + 1;
+  }
+  while (gap >= 1) {
+    var i: i32 = gap;
+    while (i < cnt) {
+      let cur: i32 = d.seed_dist[24576 + i];
+      let ck: i32 = d.seed_dist[16384 + cur];
+      let ce: i32 = d.seed_dist[8192 + cur];
+      var j: i32 = i;
+      while (j >= gap) {
+        let o: i32 = d.seed_dist[24576 + j - gap];
+        let ok: i32 = d.seed_dist[16384 + o];
+        let oe: i32 = d.seed_dist[8192 + o];
+        if (ok < ck or (ok == ck and oe > ce)) {
+          d.seed_dist[24576 + j] = o;
+          j = j - gap;
+        } else {
+          break;
+        }
+      }
+      d.seed_dist[24576 + j] = cur;
+      ++i;
+    }
+    gap = gap / 3;
+  }
+
+  var moves: i32 = 0;
+  var k: i32 = 0;
+  while (k < cnt) {
+    let idx: i32 = d.seed_dist[24576 + k];
+    ++k;
+    let pa: i32 = d.seed_dist[idx];
+    let pe0: i32 = d.seed_dist[8192 + idx];
+    if (not d.forest_edge[pe0] or d.kp_deg[pa] == 0 or
+        not KpIsKey(ref d, pa)) {
+      continue;  // stale: an earlier exchange moved this ground
+    }
+    let pb: i32 = KpWalk(ref d, pa, pe0);
+    if (pb < 0) {
+      continue;
+    }
+    let old_cost: i64 = d.kp_cost;
+    let plen: i32 = d.kp_len;
+    // Remove the path. Its interior nodes lose both their edges and drop
+    // out of the tree; pa and pb keep theirs (or, for a required leaf,
+    // become a singleton component, which is the useful re-attach move).
+    var pe_i: i32 = 0;
+    while (pe_i < plen) {
+      let pe: i32 = d.kp_edge[pe_i];
+      d.forest_edge[pe] = false;
+      --d.kp_deg[d.edge_from[pe]];
+      --d.kp_deg[d.edge_to[pe]];
+      ++pe_i;
+    }
+    ++d.kp_stamp;
+    KpMarkComponent(ref d, pb, 2);
+    let a_count: i32 = KpMarkComponent(ref d, pa, 1);
+    let stop: i32 = KpReconnect(ref d, a_count, old_cost);
+    if (stop >= 0) {
+      KpApplyPath(ref d, stop);
+      ++moves;
+    } else {
+      pe_i = 0;
+      while (pe_i < plen) {
+        let pe: i32 = d.kp_edge[pe_i];
+        d.forest_edge[pe] = true;
+        ++d.kp_deg[d.edge_from[pe]];
+        ++d.kp_deg[d.edge_to[pe]];
+        ++pe_i;
+      }
+    }
+  }
+  return moves;
+}
+
+fn KpTreeMeters(ref d: Design) -> i32 {
+  var m: i32 = 0;
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    if (d.forest_edge[e]) {
+      m += d.edge_len[e];
+    }
+    ++e;
+  }
+  return m;
+}
+
+fn KpTreeCents(ref d: Design) -> i64 {
+  var c: i64 = 0;
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    if (d.forest_edge[e]) {
+      c += TrenchEdgeCents(ref d, e);
+    }
+    ++e;
+  }
+  return c;
+}
+
+// The exchange preserves the tree by construction — assert it anyway, since
+// a silent ring costs 500,000 in the composite. One BFS from the CO: a
+// connected component with V nodes carrying exactly V-1 of the tree's edges
+// proves both acyclicity and that no second component broke off, and every
+// required node must be inside it.
+fn KpTreeOk(ref d: Design) -> bool {
+  ++d.kp_stamp;
+  let reached: i32 = KpMarkComponent(ref d, d.co_node, 1);
+  let tag: i32 = d.kp_stamp * 4 + 1;
+  var edges: i32 = 0;
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    if (d.forest_edge[e]) {
+      ++edges;
+    }
+    ++e;
+  }
+  if (edges != reached - 1) {
+    return false;
+  }
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    if (d.kp_req[n] and d.kp_comp[n] != tag) {
+      return false;
+    }
+    ++n;
+  }
+  return true;
+}
+
+// Rounds to fixpoint. research.md 3.2 measured convergence in 3; the cap is
+// a guard, not a schedule.
+fn KeyPathSearch(ref d: Design) {
+  d.kp_rounds = 0;
+  d.kp_moves = 0;
+  d.kp_stamp = 0;
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.kp_comp[n] = -1;
+    ++n;
+  }
+  var r: i32 = 0;
+  while (r < 8) {
+    let moves: i32 = KpRound(ref d);
+    d.kp_moves += moves;
+    ++d.kp_rounds;
+    if (moves == 0) {
+      break;
+    }
+    ++r;
+  }
+}
+
+// Optical-budget proxy, checked the way RunQa checks it. Key-path exchange
+// trades trench cost for route length, so it can push a CO->premises path
+// past the budget — the district already sits at 18,060 m of 20,000 m
+// (backlog 5's WATCH). Measured after the fiber re-route, with the phase-1
+// tree kept in kp_saved so a violation can be undone whole.
+fn TrenchRouteOverBudget(ref d: Design) -> i32 {
+  var over: i32 = 0;
+  d.kp_route_max = 0;
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let t: i32 = d.prem_terminal[p];
+    if (t != -1 and d.prem_cluster[p] != -1) {
+      let route_m: i32 = d.fdh_route_len[d.prem_cluster[p]] +
+                         d.term_path_len[t] + d.prem_drop_len[p];
+      if (route_m > MaxRouteM()) {
+        ++over;
+      }
+      if (route_m > d.kp_route_max) {
+        d.kp_route_max = route_m;
+      }
+    }
+    ++p;
+  }
+  return over;
+}
+
+// Puts the phase-1 tree back, whole. Only kp_saved knows it: the exchange
+// pass mutates forest_edge in place, and a partial undo would not be a tree.
+fn KpRestoreTree(ref d: Design) {
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    d.forest_edge[e] = d.kp_saved[e];
+    ++e;
+  }
+}
+
+// DeloopTrench phases 2-3, factored out so the route-budget guard can run
+// them, look at the result, and re-run them on the restored tree. Fibers
+// feed TERMINAL locations (post-merge assignment), so the kept trench always
+// reaches every terminal (backlog 6b).
+fn RouteOnTrenchTree(ref d: Design) {
+  // Phase 2: re-route distribution on the tree, cluster by cluster.
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    d.dist_fibers[e] = 0;
+    ++e;
+  }
+  var n: i32 = 0;
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    ForestBfs(ref d, d.fdh_node[c]);
+    n = 0;
+    while (n < d.node_count) {
+      d.node_units[n] = 0;
+      ++n;
+    }
+    var p: i32 = 0;
+    while (p < d.prem_count) {
+      if (d.prem_cluster[p] == c and d.prem_terminal[p] != -1) {
+        d.node_units[d.term_node[d.prem_terminal[p]]] += d.prem_units[p];
+      }
+      ++p;
+    }
+    n = 0;
+    while (n < d.node_count) {
+      if (d.node_units[n] > 0 and d.in_tree[n]) {
+        var walk: i32 = n;
+        while (walk != d.fdh_node[c] and d.tree_parent_edge[walk] != -1) {
+          d.dist_fibers[d.tree_parent_edge[walk]] += d.node_units[n];
+          walk = d.tree_parent_node[walk];
+        }
+      }
+      ++n;
+    }
+    var t: i32 = 0;
+    while (t < d.term_count) {
+      if (d.term_cluster[t] == c and d.in_tree[d.term_node[t]]) {
+        d.term_path_len[t] = d.node_path_m[d.term_node[t]];
+      }
+      ++t;
+    }
+    ++c;
+  }
+
+  // Phase 3: re-route feeder CO -> each FDH on the tree.
+  e = 0;
+  while (e < d.edge_count) {
+    d.feeder_fibers[e] = 0;
+    ++e;
+  }
+  ForestBfs(ref d, d.co_node);
+  c = 0;
+  while (c < d.cluster_count) {
+    d.fdh_route_len[c] = 0;
+    if (d.fdh_node[c] != d.co_node and d.in_tree[d.fdh_node[c]]) {
+      let fibers: i32 = d.fdh_splitters[c] + 1;
+      var v: i32 = d.fdh_node[c];
+      var meters: i32 = 0;
+      while (v != d.co_node and d.tree_parent_edge[v] != -1) {
+        let pe: i32 = d.tree_parent_edge[v];
+        d.feeder_fibers[pe] += fibers;
+        meters += d.edge_len[pe];
+        v = d.tree_parent_node[v];
+      }
+      d.fdh_route_len[c] = meters;
+    }
+    ++c;
+  }
+}
+
 // The union of per-cluster distribution trees and feeder paths chooses its
 // corridors independently, so the used trench both re-opened the road
 // lattice's cycles AND paid for corridors a global view would never open.
@@ -1645,6 +2140,7 @@ fn DeloopTrench(ref d: Design) {
   while (n < d.node_count) {
     d.node_units[n] = 0;
     d.in_tree[n] = false;
+    d.kp_req[n] = false;   // stage 9a needs the required set after phase 1
     ++n;
   }
   var remaining: i32 = 0;
@@ -1654,6 +2150,7 @@ fn DeloopTrench(ref d: Design) {
       let tn: i32 = d.term_node[d.prem_terminal[p1]];
       if (d.node_units[tn] == 0) {
         d.node_units[tn] = 1;
+        d.kp_req[tn] = true;
         ++remaining;
       }
     }
@@ -1664,12 +2161,14 @@ fn DeloopTrench(ref d: Design) {
     let fnode: i32 = d.fdh_node[c1];
     if (d.node_units[fnode] == 0) {
       d.node_units[fnode] = 1;
+      d.kp_req[fnode] = true;
       ++remaining;
     }
     ++c1;
   }
   if (d.node_units[d.co_node] == 0) {
     d.node_units[d.co_node] = 1;
+    d.kp_req[d.co_node] = true;
     ++remaining;
   }
   DijkstraReset(ref d);
@@ -1716,74 +2215,38 @@ fn DeloopTrench(ref d: Design) {
     }
   }
 
-  // Phase 2: re-route distribution on the forest, cluster by cluster.
+  // Phase 1b: key-path local search (stage 9a). Keep the constructed tree
+  // first — the exchange can lengthen CO->premises routes, and the only
+  // honest undo for that is the tree the heuristic built.
+  d.kp_trench_before = KpTreeMeters(ref d);
+  d.kp_cents_before = KpTreeCents(ref d);
   e = 0;
   while (e < d.edge_count) {
-    d.dist_fibers[e] = 0;
+    d.kp_saved[e] = d.forest_edge[e];
     ++e;
   }
-  var c: i32 = 0;
-  while (c < d.cluster_count) {
-    ForestBfs(ref d, d.fdh_node[c]);
-    n = 0;
-    while (n < d.node_count) {
-      d.node_units[n] = 0;
-      ++n;
-    }
-    var p: i32 = 0;
-    while (p < d.prem_count) {
-      if (d.prem_cluster[p] == c and d.prem_terminal[p] != -1) {
-        // Fibers feed TERMINAL locations (post-merge assignment), so the
-        // kept trench always reaches every terminal (backlog 6b).
-        d.node_units[d.term_node[d.prem_terminal[p]]] += d.prem_units[p];
-      }
-      ++p;
-    }
-    n = 0;
-    while (n < d.node_count) {
-      if (d.node_units[n] > 0 and d.in_tree[n]) {
-        var walk: i32 = n;
-        while (walk != d.fdh_node[c] and d.tree_parent_edge[walk] != -1) {
-          d.dist_fibers[d.tree_parent_edge[walk]] += d.node_units[n];
-          walk = d.tree_parent_node[walk];
-        }
-      }
-      ++n;
-    }
-    var t: i32 = 0;
-    while (t < d.term_count) {
-      if (d.term_cluster[t] == c and d.in_tree[d.term_node[t]]) {
-        d.term_path_len[t] = d.node_path_m[d.term_node[t]];
-      }
-      ++t;
-    }
-    ++c;
+  KeyPathSearch(ref d);
+  d.kp_rollback = 0;
+  if (not KpTreeOk(ref d)) {
+    KpRestoreTree(ref d);
+    d.kp_rollback = 2;
   }
 
-  // Phase 3: re-route feeder CO -> each FDH on the forest.
-  e = 0;
-  while (e < d.edge_count) {
-    d.feeder_fibers[e] = 0;
-    ++e;
+  // Phases 2-3: re-route distribution and feeder on the tree, then check the
+  // optical budget the exchange could have blown and undo the whole pass if
+  // it did. Rolling back wholesale rather than per-move is the cheap correct
+  // choice: term_path_len only exists after a full ForestBfs per cluster, so
+  // a per-move check would cost more than the search itself.
+  RouteOnTrenchTree(ref d);
+  var over: i32 = TrenchRouteOverBudget(ref d);
+  if (d.kp_moves > 0 and d.kp_rollback == 0 and over > 0) {
+    KpRestoreTree(ref d);
+    d.kp_rollback = 1;
+    RouteOnTrenchTree(ref d);
+    over = TrenchRouteOverBudget(ref d);  // refreshes the reported max too
   }
-  ForestBfs(ref d, d.co_node);
-  c = 0;
-  while (c < d.cluster_count) {
-    d.fdh_route_len[c] = 0;
-    if (d.fdh_node[c] != d.co_node and d.in_tree[d.fdh_node[c]]) {
-      let fibers: i32 = d.fdh_splitters[c] + 1;
-      var v: i32 = d.fdh_node[c];
-      var meters: i32 = 0;
-      while (v != d.co_node and d.tree_parent_edge[v] != -1) {
-        let pe: i32 = d.tree_parent_edge[v];
-        d.feeder_fibers[pe] += fibers;
-        meters += d.edge_len[pe];
-        v = d.tree_parent_node[v];
-      }
-      d.fdh_route_len[c] = meters;
-    }
-    ++c;
-  }
+  d.kp_trench_after = KpTreeMeters(ref d);
+  d.kp_cents_after = KpTreeCents(ref d);
 
   // Phase 4: trench only where cable actually runs. A subset of a forest
   // is acyclic, so the scorer's cyclomatic number is 0 by construction.

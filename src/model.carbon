@@ -260,7 +260,11 @@ class Design {
   // Dead after stage 3b; stage 6 (PackTerminals) reuses it as the packing
   // pair table — up to 196608 (hi, lo) i32 pairs: hi = crossings * 65536 +
   // drop_m, lo = premises id. The Design object lives on the stack, so new
-  // scratch must reuse dead arrays instead of growing the class.
+  // scratch must reuse dead arrays instead of growing the class. Stage 9a
+  // (key-path local search) reuses it again, dead by then in the other
+  // direction: [0,8192) key-path endpoint, [8192,16384) first edge,
+  // [16384,24576) cents, [24576,32768) sort order, [32768,49152) the
+  // component-A node list.
   var seed_dist: array(i32, 393216);       // 32 x 12288
 
   // --- access terminals ---
@@ -308,6 +312,31 @@ class Design {
   var ux_rounds: i32;
   var ux_residual: i32;
   var ux_residual_xarea: i32;
+
+  // --- key-path local search on the trench tree (stage 9a, iter 011) ---
+  // A node is KEY when it is required (CO / FDH / live terminal node) or its
+  // tree degree is not 2; a KEY PATH is a maximal tree path whose interior
+  // is all non-key degree-2 nodes. Removing one splits the tree in exactly
+  // two components, so the reconnection keeps it a tree and rings stay 0.
+  // Candidate lists live in the dead `seed_dist` scratch (see below); only
+  // the per-node/per-edge state is worth stack space here.
+  var kp_req: array(bool, 16384);    // required-node marker, kept from phase 1
+  var kp_deg: array(i32, 16384);     // tree degree under forest_edge
+  var kp_comp: array(i32, 16384);    // stamped component tag: stamp * 4 + side
+  var kp_stamp: i32;                 // bumped per trial, so no O(n) comp reset
+  var kp_saved: array(bool, 49152);  // phase-1 tree, for the route-budget undo
+  var kp_edge: array(i32, 1024);     // edges of the key path under test
+  var kp_len: i32;                   // ... and how many, with its cost
+  var kp_cost: i64;
+  var kp_rounds: i32;                // diagnostics, reported under "sweeps:"
+  var kp_moves: i32;
+  var kp_paths: i32;                 // key paths enumerated in the last round
+  var kp_trench_before: i32;         // tree meters/cents before and after
+  var kp_trench_after: i32;
+  var kp_cents_before: i64;
+  var kp_cents_after: i64;
+  var kp_rollback: i32;              // 1 = route budget, 2 = tree assert
+  var kp_route_max: i32;             // worst CO->premises route, vs MaxRouteM
 
   // --- two-sweep bookkeeping, reported under "sweeps:" ---
   var pi_min: i32;
