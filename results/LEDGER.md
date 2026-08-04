@@ -14,4 +14,4 @@ Composite score (lower is better) summed over all scenarios and the parcel distr
 | 007 | catalog granularity: small FDH pedestals, 1-2 port OLT cards, 1:2 splitter, minimal-cover splitter bank | 1006158940 | 825478940 | 2238 | 684 | 511 | 0 | 4 |
 | 008 | ConFL trench price pi_v inside the terminal-packing move cost (two-sweep) | 1001173710 | 822033710 | 2252 | 692 | 487 | 0 | 4 |
 | 009 | priced 2-opt drop uncrossing: load-preserving swaps, cross-area allowed | 977539160 | 820549160 | 2027 | 147 | 487 | 0 | 4 |
-| 008 | exact premises->FDH assignment: Lloyd re-seed from the medoids + negative-cycle transportation repair | 894344640 | 792154640 | 1509 | 72 | 213 | 0 | 4 |
+| 010 | exact premises->FDH assignment: Lloyd re-seed from the medoids + negative-cycle transportation repair | 894344640 | 792154640 | 1509 | 72 | 213 | 0 | 4 |

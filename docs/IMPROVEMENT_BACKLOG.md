@@ -54,7 +54,12 @@ for deliberate, reviewed output changes (`BLESS=1`).
    crossings 5,422 -> 2,229, under-4 1,076 -> 526, capex -268M (trench
    190,299 m -> 134,276 m: the tree now targets ~1,700 terminal nodes
    instead of ~3,000 snap nodes).
-2. **Retire the remaining under-4 strays (526 district).** These are
+2. **Retire the remaining under-4 strays (213 district after iter 010;
+   was 526).** Iter 010's exact re-assignment dissolved 274 of them for
+   free by making the serving areas contiguous — appendix A E1's "81
+   have a spare-port host within 150 m only in another serving area" was
+   an under-count of the seam damage, and the seam is now largely gone,
+   so re-measure before building cross-cluster bookkeeping. These are
    geometry-forced: strays whose neighbours' spare ports sit across
    uncrossable edges, plus the utilization floor eating spare-port slack
    (terminal_ports sits exactly at 95.0% after forced repair — ANY
@@ -211,10 +216,57 @@ for deliberate, reviewed output changes (`BLESS=1`).
 
 ## P2 — clustering and packing optimality
 
-7. **Local search (swap/relocate) for serving-area clustering.** After
-   greedy seeding, hill-climb: move a boundary premises to the adjacent
-   area (or swap two) when it reduces total graph distance without
-   breaking FDH capacity; deterministic scan order, fixpoint-bounded.
+7. ~~**Local search (swap/relocate) for serving-area clustering.**~~
+   DONE iter 010, and done exactly rather than by hill-climbing
+   (research.md 1.1 item 2 + 1.2, appendix A ranked #5). Total
+   **-83,194,520** (977,539,160 -> 894,344,640); district capex
+   -$283,945, street crossings 2,027 -> 1,509, drop-drop 147 -> 72,
+   under-4 487 -> 213, terminals 1,732 -> 1,530, trench -2,543 m.
+   Two stages, and the report prints the decomposition
+   (`sweeps: assignment_m:`, unit-weighted premises->cabinet meters):
+     - **3c ReassignToFdh** — the ~20-line defect fix. `seed_dist` was
+       measured from FARTHEST-POINT seeds; `PlaceFdh` then relocated
+       every cabinet to a medoid and never re-assigned, so the design
+       optimized its assignment against reference nodes it does not
+       build. Refilling the table from `fdh_node` and re-running the
+       same greedy is Lloyd's assignment step: **9,824,970 -> 7,685,929
+       m (-21.8%)**, district capex -$148,140.
+     - **3d TransportRepair** — the greedy is not an *exact* assignment
+       step, which is the one thing Lloyd's descent proof requires, and
+       measuring 3c alone proved it: id-order "nearest with room" exiled
+       premises 6710-6716 into the leftover area 10 km from its cabinet
+       and **failed `route_length_budget` (7 violations)**. So 3c must
+       NOT ship alone. The repair condenses the residual network onto
+       the k<=32 facilities (arc j->j' priced at the cheapest single
+       premises that could move, plus a slack node for spare capacity),
+       cancels the negative cycle Bellman-Ford finds, and repeats:
+       **7,685,929 -> 6,009,457 m (-21.8% more, -38.8% total)** in 1,400
+       cycles / 3,206 moves, terminating with `stop=0` — no negative
+       cycle left, i.e. an optimality certificate, not a heuristic
+       fixpoint. Premises stay single-sourced and a cycle is applied
+       only if every area stays within the 432-unit cap and non-empty
+       (with u_p > 1 a cycle need not preserve loads).
+   Appendix A banked 5-12M cents against a $519,961 addressable
+   distribution+feeder pool; the measured 83.2M is 7-16x that, and the
+   overrun is NOT cable — cable fell only ~$36k. It is the seam effect
+   C2 called unproven: a contiguous assignment lets `PackTerminals`
+   choose the natural corner group, so 202 terminals, 518 street
+   crossings and 274 under-4 penalties disappear (27.4M of under-4 +
+   25.9M of crossings + 1.5M of drop-drop). The lesson is that stage 3's
+   real coupling is to the PACKING stage, not to the cable catalog —
+   which is why the per-cluster-SPT simulator (C1) under-predicted it.
+7b. **Next on this line, in order.** (a) A second Lloyd round —
+   re-run `PlaceFdh` on the repaired membership, then 3c+3d again; the
+   sites are still the medoids of the OLD partition (research 1.0(ii)
+   measured a further -13% of assignment meters for 2 rounds), cost is
+   ~1,024 more Dijkstras. (b) `RebalanceClusters` is now provably dead
+   weight — it degrades the assignment to defend a cabinet-packing
+   objective worth about $700 (15x432+288 = $39,300 vs a balanced
+   16x432 = $40,000, and balanced still clears the FDH floor at 97.2%),
+   and 3d re-optimizes on top of it anyway; delete it and measure.
+   (c) With the assignment exactly optimal at fixed sites, the open
+   question moves to the SITES: k as a decision variable (research 1.7,
+   but re-run under the 432 cap — appendix A B7).
 8. ~~**Exact terminal packing per serving area (DP over the DFS order).**~~
    DONE iter 003, then SUPERSEDED iter 004: the DP's consecutive-batch
    constraint was the binding limit, so the node-centric set-cover greedy

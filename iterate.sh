@@ -11,7 +11,7 @@ cd "$(dirname "$0")"
 
 N="${1:?usage: iterate.sh <N> \"<title>\"}"
 TITLE="${2:?usage: iterate.sh <N> \"<title>\"}"
-NNN=$(printf '%03d' "$N")
+NNN=$(printf '%03d' "$((10#$N))")   # 10# so "010" is ten, not octal eight
 
 # Toolchain: explicit CARBON env wins; else the session scratchpad copy;
 # else build.sh's default (toolchain unpacked next to the repo).

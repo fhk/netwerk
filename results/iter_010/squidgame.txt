@@ -13,24 +13,24 @@
 Running tests in tests/scenarios (concurrency: 4)
 
 tests/scenarios/s01_single_street: 
-  [32mPASS[0m (68ms)
+  [32mPASS[0m (48ms)
 
 tests/scenarios/s02_parallel_streets: 
-  [32mPASS[0m (69ms)
+  [32mPASS[0m (49ms)
 
 tests/scenarios/s03_grid5: 
-  [32mPASS[0m (70ms)
-
-tests/scenarios/s06_mdu_block: 
-  [32mPASS[0m (40ms)
+  [32mPASS[0m (68ms)
 
 tests/scenarios/s04_culdesac: 
-  [32mPASS[0m (44ms)
+  [32mPASS[0m (46ms)
 
 tests/scenarios/s05_two_islands: 
-  [32mPASS[0m (47ms)
+  [32mPASS[0m (46ms)
+
+tests/scenarios/s06_mdu_block: 
+  [32mPASS[0m (46ms)
 
 tests/scenarios/parcels: 
-  [32mPASS[0m (38.74s)
+  [32mPASS[0m (36.85s)
 
-Summary: 7 passed, 0 failed (7 total, 38.74s)
+Summary: 7 passed, 0 failed (7 total, 36.85s)
