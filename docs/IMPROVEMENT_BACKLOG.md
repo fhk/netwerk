@@ -269,6 +269,74 @@ for deliberate, reviewed output changes (`BLESS=1`).
    17,375 cents more cable. Equal-cost Steiner trees are not equal
    designs — the cable layer breaks the tie, and it is not neutral.
 
+6e. ~~**Priced terminal re-siting along private trench spurs.**~~ DONE
+   iter 012 (research.md 3.3, appendix A ranked **#1**). Total
+   **-67,192,455** (879,532,855 -> 812,340,400, -7.6%), the largest single
+   iteration since 010, and every fixture improved — the six scenarios
+   together fell 7,991,200 (-24.7%), the first technique in the campaign
+   to move the small fixtures at all (district -59,201,255).
+   District: capex 749,000,105 -> 670,418,850, trench
+   **116,666 -> 99,500 m (-14.7%)**, terminals 1,530 -> 1,434, under-4
+   213 -> 160. QA green, all four utilization families ok, terminal-port
+   utilization still exactly 95.0%, rings 0.
+
+   New stage 9c in `stages.carbon`, inserted in `DeloopTrench` between the
+   key-path search (9a) and the fiber re-route. Root the tree at the CO,
+   count required nodes per subtree in one reverse pass over the BFS
+   order, and for every terminal standing alone on a subtree with `cnt==1`
+   walk toward the root collecting candidate sites and the trench each
+   would retire. Each candidate pays the FULL scorer delta — trench cents
+   freed, $1.50/m drop cable, 50,000 per drop-street crossing via
+   `CountDropCrossings`, 20,000 per drop-drop crossing, infeasible past
+   the 150 m drop rule — best strictly-negative wins, ties to the lowest
+   node id, `cnt[]`/required set updated after every accept, rounds to
+   fixpoint (2 everywhere). Orphaned spurs are dropped from `forest_edge`
+   (a subtree with no required node in it), so rings stay 0 by
+   construction and the move is port-neutral by construction: it rewrites
+   `term_node` and the drop lengths that follow, never an assignment or a
+   port count.
+
+   **The report's negative control is the whole point and it held.**
+   research.md 3.3 measured the UNPRICED version of this pass converting a
+   $1,478,610 trench win into a $605,637 LOSS by creating 4,008 street
+   crossings at 11.1 m of soft trench each. Pricing every candidate turned
+   the same neighbourhood into the campaign's biggest lever. The residual
+   proves the pricing is doing work rather than rubber-stamping:
+   **473 terminals are still standing on private spurs at the fixpoint** —
+   refused because their drops or crossings cost more than the spur.
+
+   Three things worth carrying forward:
+   (a) **Most of the gain is INDIRECT, through iter 008's price.** The
+   engine prints both halves. At fixed packing the pass is worth
+   **-34,355,895** (sweep 1's own composite, 766,774,170 -> 732,418,275).
+   The other ~33M arrives because a leaner sweep-1 trench changes `pi_v`
+   (median 90,000 -> 99,000, nodes over 50k 9,548 -> 10,191), and the
+   re-priced sweep 2 then packs 96 fewer terminals onto the corridor
+   before 9c ever runs — its own re-siting only has 57 moves and 1,953 m
+   left to find. This is backlog 5b note (a) paying off: the two-sweep
+   loop turns any trench improvement into a better-informed site price.
+   Any future trench work should expect the same multiplier and should be
+   measured with the sweep decomposition, not just the final total.
+   (b) **The crossing budget paid for it: street crossings 1,509 ->
+   1,997 (+488, +24.4M), drop-drop 72 -> 86.** Not from 9c, which prices
+   both terms exactly and refuses moves that do not pay — from the sweep-2
+   packing at the higher `pi`. 5b note (b) predicted exactly this
+   ("the price is strong enough to dominate the crossing term"). A DAMPED
+   `pi` (scaled, or amortized over the batch's expected size) is now the
+   highest-value cheap probe on this line: 24.4M of crossings were bought
+   with a price that has no reason to be right at full strength.
+   (c) **The route-length guard moved from theoretical to nearly live.**
+   Worst CO->premises route 11,718 -> 16,365 m of the 20,000 m budget.
+   The whole-pass undo (tree AND terminal sites restored together,
+   `kp_rollback=1`) still never fires, but 6c note (a)'s "8.3 km of
+   headroom" is now 3.6 km. Re-read this before the next consolidation.
+
+   Not done, and cheap: research.md 3.3's "second-order bonus" — re-running
+   the scorer-priced `MergeTerminals` after re-siting, since re-sited
+   terminals become co-located and give fresh dissolve targets at zero
+   drop cost. That is a direct attack on the remaining 160 under-4
+   penalties (16.0M). It needs care because merging is NOT port-neutral
+   and 9c runs after `MergeTerminals` in the sweep order.
 6d. **Next on the Steiner line, in order.** (a) **Key-vertex
    elimination** — research.md 5.5(b) argues it matters more than
    key-path on a lattice, because SPH creates spurious degree-3 Steiner
