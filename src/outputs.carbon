@@ -1012,4 +1012,24 @@ fn PrintSweeps(ref d: Design) {
   Core.PrintStr(" route_max_m=");
   PrintInt(d.kp_route_max);
   NL();
+  // Stage 9c: what priced re-siting took off the same tree. spurs is the
+  // residual census — terminals still standing on a private spur after the
+  // search stopped, i.e. the ones whose spur is worth less than the drops
+  // and crossings that retiring it would buy. gain is the summed scorer
+  // delta of the accepted moves and is an UNDER-statement of the real
+  // saving: the cable that rode each retired spur goes with it and is not
+  // priced here.
+  Core.PrintStr("  spur_resite: rounds=");
+  PrintInt(d.rs_rounds);
+  Core.PrintStr(" moves=");
+  PrintInt(d.rs_moves);
+  Core.PrintStr(" spurs_left=");
+  PrintInt(d.rs_spurs);
+  Core.PrintStr(" trench_m=-");
+  PrintInt(d.rs_freed_m);
+  Core.PrintStr(" cents=-");
+  PrintI64(d.rs_freed_cents);
+  Core.PrintStr(" gain=");
+  PrintI64(d.rs_gain);
+  NL();
 }

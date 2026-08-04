@@ -264,7 +264,9 @@ class Design {
   // (key-path local search) reuses it again, dead by then in the other
   // direction: [0,8192) key-path endpoint, [8192,16384) first edge,
   // [16384,24576) cents, [24576,32768) sort order, [32768,49152) the
-  // component-A node list.
+  // component-A node list. Stage 9c (priced spur re-siting) runs after 9a
+  // inside the same DeloopTrench call and takes everything above 49152 —
+  // the RsXxxBase() accessors in stages.carbon are the map.
   var seed_dist: array(i32, 393216);       // 32 x 12288
 
   // --- access terminals ---
@@ -337,6 +339,28 @@ class Design {
   var kp_cents_after: i64;
   var kp_rollback: i32;              // 1 = route budget, 2 = tree assert
   var kp_route_max: i32;             // worst CO->premises route, vs MaxRouteM
+
+  // --- priced terminal re-siting on private spurs (stage 9c, iter 012) ---
+  // 28.6% of the district trench is dedicated spur to a SINGLE terminal
+  // (research.md 3.0 measurement 2). Sliding that terminal back down its
+  // own spur retires the trench at the cost of longer drops, and possibly
+  // of new drop-street / drop-drop crossings — so every candidate position
+  // is priced with the full scorer delta. Only the per-spur line search
+  // needs stack space here; the per-node bookkeeping (subtree required
+  // counts, terminals per node, BFS order, the premises grid, the
+  // terminal -> premises buckets) all lives in the dead `seed_dist`.
+  var rs_cand: array(i32, 256);      // spur nodes, terminal -> trunk order
+  var rs_freed: array(i64, 256);     // cumulative trench cents retired
+  var rs_span: array(i32, 256);      // cumulative spur meters retired
+  var rs_cand_n: i32;
+  var rs_order_n: i32;               // nodes in the CO-rooted BFS order
+  var rs_saved_node: array(i32, 4096);  // terminal sites, for the undo
+  var rs_rounds: i32;                // diagnostics, reported under "sweeps:"
+  var rs_moves: i32;
+  var rs_spurs: i32;                 // private-spur terminals, last round
+  var rs_freed_cents: i64;
+  var rs_freed_m: i32;
+  var rs_gain: i64;                  // summed accepted scorer deltas (< 0)
 
   // --- two-sweep bookkeeping, reported under "sweeps:" ---
   var pi_min: i32;

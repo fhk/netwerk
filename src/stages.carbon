@@ -2035,6 +2035,512 @@ fn KpRestoreTree(ref d: Design) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stage 9c — priced terminal re-siting along private trench spurs (iter 012)
+//
+// research.md 3.3, appendix A's ranked #1. Measurement 2 of research.md 3.0:
+// 28.6% of the district trench (35,387 m) exists to reach exactly ONE
+// required node — a private spur to a single terminal. PackTerminals picked
+// that terminal's node to minimise drop crossings and drop length, with no
+// knowledge that reaching it would cost a dedicated trench, and a metre of
+// soft trench buys 30 m of drop cable. Sliding the terminal back down its
+// own spur onto the shared trunk retires the spur outright.
+//
+// It is usually worth doing and it is catastrophic to do blindly. research.md
+// 3.3 measured the UNPRICED version of exactly this pass: 656 terminals moved
+// to their attach points, $1,478,610 of trench retired — and 4,008 NEW street
+// crossings created, $2,004,000 of penalty, turning the win into a $605,637
+// LOSS. One crossing is 11.1 m of soft trench, and a parcel lattice charges
+// ~k^2/4 crossings for a k-customer terminal, so concentrating terminals onto
+// corridors is precisely what buys them. Every candidate position here
+// therefore pays the FULL scorer delta — trench cents retired, drop cable,
+// drop-street crossings via the scorer's own predicate, AND the drop-drop
+// term the section skipped (appendix A haircut ii) — and only a strictly
+// negative total is accepted.
+//
+// Port-neutral by construction: the move rewrites term_node and the drop
+// lengths that follow from it, never an assignment or a port count, so
+// terminal hardware, the under-4/over-12 counts, the splitter and OLT banks
+// and the exactly-95.0% terminal-port utilization floor cannot move. Rings
+// stay 0: the retired spur is a subtree containing no required node, and
+// deleting such a subtree from a tree leaves a tree.
+//
+// Scratch map inside seed_dist, all of it above stage 9a's 49152 (9a has
+// finished by the time this runs, but keeping the ranges disjoint means the
+// two stages can be read independently).
+// ---------------------------------------------------------------------------
+
+fn RsCntBase() -> i32 { return 49152; }     // required nodes in v's subtree
+fn RsTermBase() -> i32 { return 65536; }    // live terminals sited at v
+fn RsOrderBase() -> i32 { return 81920; }   // CO-rooted BFS order
+fn RsFixedBase() -> i32 { return 98304; }   // v is the CO or an FDH site
+fn RsPgHead() -> i32 { return 114688; }     // premises grid, 128 m cells
+fn RsPgNext() -> i32 { return 131072; }
+fn RsPList() -> i32 { return 143360; }      // premises bucketed by terminal
+fn RsPStart() -> i32 { return 155648; }
+fn RsPCur() -> i32 { return 163840; }       // fill cursor for the buckets
+
+// Indexes every premises by its own position. Static for the whole run —
+// premises never move — but it lives in scratch that PackTerminals reuses
+// between sweeps, so it is rebuilt once per pass.
+fn RsBuildPremGrid(ref d: Design) {
+  var c: i32 = 0;
+  while (c < 16384) {
+    d.seed_dist[RsPgHead() + c] = -1;
+    ++c;
+  }
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let cell: i32 = GridCell(d.prem_y[p], d.eg_miny) * 128 +
+                    GridCell(d.prem_x[p], d.eg_minx);
+    d.seed_dist[RsPgNext() + p] = d.seed_dist[RsPgHead() + cell];
+    d.seed_dist[RsPgHead() + cell] = p;
+    ++p;
+  }
+}
+
+// Counting sort of premises into per-terminal buckets, ascending premises id
+// within each bucket. Both the assignment and the ids are fixed for the whole
+// pass, so this runs once.
+fn RsBucketPremises(ref d: Design) {
+  var t: i32 = 0;
+  while (t <= d.term_count) {
+    d.seed_dist[RsPStart() + t] = 0;
+    ++t;
+  }
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let tp: i32 = d.prem_terminal[p];
+    if (tp != -1) {
+      d.seed_dist[RsPStart() + tp + 1] += 1;
+    }
+    ++p;
+  }
+  t = 0;
+  while (t < d.term_count) {
+    d.seed_dist[RsPStart() + t + 1] += d.seed_dist[RsPStart() + t];
+    d.seed_dist[RsPCur() + t] = d.seed_dist[RsPStart() + t];
+    ++t;
+  }
+  p = 0;
+  while (p < d.prem_count) {
+    let tp: i32 = d.prem_terminal[p];
+    if (tp != -1) {
+      d.seed_dist[RsPList() + d.seed_dist[RsPCur() + tp]] = p;
+      d.seed_dist[RsPCur() + tp] += 1;
+    }
+    ++p;
+  }
+}
+
+// The required set, re-derived from the assignment exactly the way
+// DeloopTrench phase 1 derives it: a terminal is live when premises are
+// assigned to it. rs_term counts how many live terminals share a node —
+// moving one off a node that carries two frees no trench at all — and
+// rs_fixed marks the CO and the FDH sites, which pin their node whatever
+// the terminals do.
+fn RsMarkRequired(ref d: Design) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.seed_dist[RsTermBase() + n] = 0;
+    d.seed_dist[RsFixedBase() + n] = 0;
+    d.kp_req[n] = false;
+    ++n;
+  }
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    if (d.seed_dist[RsPStart() + t + 1] > d.seed_dist[RsPStart() + t]) {
+      d.seed_dist[RsTermBase() + d.term_node[t]] += 1;
+      d.kp_req[d.term_node[t]] = true;
+    }
+    ++t;
+  }
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    d.seed_dist[RsFixedBase() + d.fdh_node[c]] = 1;
+    d.kp_req[d.fdh_node[c]] = true;
+    ++c;
+  }
+  d.seed_dist[RsFixedBase() + d.co_node] = 1;
+  d.kp_req[d.co_node] = true;
+}
+
+// Roots the trench tree at the CO: parent pointers plus the BFS visit order,
+// which is what makes the subtree counts one reverse sweep instead of a
+// recursion the language has no stack for.
+fn RsRootTree(ref d: Design) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.in_tree[n] = false;
+    d.tree_parent_node[n] = -1;
+    d.tree_parent_edge[n] = -1;
+    ++n;
+  }
+  var head: i32 = 0;
+  var tail: i32 = 0;
+  d.in_tree[d.co_node] = true;
+  d.seed_dist[RsOrderBase() + tail] = d.co_node;
+  ++tail;
+  while (head < tail) {
+    let u: i32 = d.seed_dist[RsOrderBase() + head];
+    ++head;
+    var a: i32 = d.adj_head[u];
+    while (a != -1) {
+      let e: i32 = d.adj_edge[a];
+      let v: i32 = d.adj_to[a];
+      if (d.forest_edge[e] and not d.in_tree[v]) {
+        d.in_tree[v] = true;
+        d.tree_parent_node[v] = u;
+        d.tree_parent_edge[v] = e;
+        d.seed_dist[RsOrderBase() + tail] = v;
+        ++tail;
+      }
+      a = d.adj_next[a];
+    }
+  }
+  d.rs_order_n = tail;
+}
+
+// cnt[v] = required nodes in v's subtree. Children precede parents in the
+// reversed BFS order, so one backward sweep suffices.
+fn RsCounts(ref d: Design) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.seed_dist[RsCntBase() + n] = 0;
+    ++n;
+  }
+  var i: i32 = d.rs_order_n - 1;
+  while (i >= 0) {
+    let u: i32 = d.seed_dist[RsOrderBase() + i];
+    if (d.kp_req[u]) {
+      d.seed_dist[RsCntBase() + u] += 1;
+    }
+    let par: i32 = d.tree_parent_node[u];
+    if (par != -1) {
+      d.seed_dist[RsCntBase() + par] += d.seed_dist[RsCntBase() + u];
+    }
+    --i;
+  }
+}
+
+// Candidate positions for a terminal standing at `v`: walk toward the CO
+// while the subtree below carries this one required node, stopping at (and
+// including) the first ancestor that carries more. That ancestor is the
+// trunk attach point — moving there retires the whole spur — and every node
+// between is a partial retirement the line search gets to price. rs_freed
+// and rs_span accumulate what each stop would retire.
+fn RsWalkSpur(ref d: Design, v: i32) {
+  d.rs_cand_n = 0;
+  var cur: i32 = v;
+  var cents: i64 = 0;
+  var meters: i32 = 0;
+  while (d.rs_cand_n < 256) {
+    let pe: i32 = d.tree_parent_edge[cur];
+    if (pe == -1) {
+      break;  // reached the root without meeting a shared ancestor
+    }
+    let par: i32 = d.tree_parent_node[cur];
+    cents += TrenchEdgeCents(ref d, pe);
+    meters += d.edge_len[pe];
+    d.rs_cand[d.rs_cand_n] = par;
+    d.rs_freed[d.rs_cand_n] = cents;
+    d.rs_span[d.rs_cand_n] = meters;
+    ++d.rs_cand_n;
+    if (d.seed_dist[RsCntBase() + par] > 1) {
+      break;  // shared from here up: this is the attach point
+    }
+    cur = par;
+  }
+}
+
+// Change in drop-drop crossings for ONE premises whose terminal endpoint
+// moves from (vx,vy) to (cx,cy), counted against every other terminal's
+// drops. Pairs inside the moving terminal are excluded and need to be: they
+// share an endpoint before the move and after it, so ProperCross rejects
+// them either way.
+//
+// Every segment involved is at most MaxDropM long, so any drop whose status
+// can change has its premises endpoint within one drop length of the
+// bounding box of (premises, old node, new node). That box, grown by
+// MaxDropM and mapped onto the 128 m premises grid, is an exact superset
+// filter — GridCell's clamp is monotone, so growing the box can only grow
+// the cell range.
+fn RsDropDropDelta(ref d: Design, t: i32, px: i32, py: i32,
+                   vx: i32, vy: i32, cx: i32, cy: i32) -> i32 {
+  var lox: i32 = px;
+  var hix: i32 = px;
+  var loy: i32 = py;
+  var hiy: i32 = py;
+  if (vx < lox) { lox = vx; }
+  if (vx > hix) { hix = vx; }
+  if (vy < loy) { loy = vy; }
+  if (vy > hiy) { hiy = vy; }
+  if (cx < lox) { lox = cx; }
+  if (cx > hix) { hix = cx; }
+  if (cy < loy) { loy = cy; }
+  if (cy > hiy) { hiy = cy; }
+  let gx0: i32 = GridCell(lox - MaxDropM(), d.eg_minx);
+  let gx1: i32 = GridCell(hix + MaxDropM(), d.eg_minx);
+  let gy0: i32 = GridCell(loy - MaxDropM(), d.eg_miny);
+  let gy1: i32 = GridCell(hiy + MaxDropM(), d.eg_miny);
+  var dd: i32 = 0;
+  var gy: i32 = gy0;
+  while (gy <= gy1) {
+    var gx: i32 = gx0;
+    while (gx <= gx1) {
+      var q: i32 = d.seed_dist[RsPgHead() + gy * 128 + gx];
+      while (q != -1) {
+        let tq: i32 = d.prem_terminal[q];
+        if (tq != -1 and tq != t) {
+          let qx: i32 = d.prem_x[q];
+          let qy: i32 = d.prem_y[q];
+          let mx: i32 = d.node_x[d.term_node[tq]];
+          let my: i32 = d.node_y[d.term_node[tq]];
+          var qlo: i32 = qx;
+          var qhi: i32 = qx;
+          if (mx < qlo) { qlo = mx; }
+          if (mx > qhi) { qhi = mx; }
+          var qloy: i32 = qy;
+          var qhiy: i32 = qy;
+          if (my < qloy) { qloy = my; }
+          if (my > qhiy) { qhiy = my; }
+          if (qhi >= lox and qlo <= hix and qhiy >= loy and qloy <= hiy) {
+            if (ProperCross(px, py, cx, cy, qx, qy, mx, my)) { dd += 1; }
+            if (ProperCross(px, py, vx, vy, qx, qy, mx, my)) { dd -= 1; }
+          }
+        }
+        q = d.seed_dist[RsPgNext() + q];
+      }
+      ++gx;
+    }
+    ++gy;
+  }
+  return dd;
+}
+
+// Line search for one terminal. Returns true when it moved.
+//
+// The pass declines three situations outright, each because the move would
+// free no trench: the node is the CO or an FDH site (the spur is needed
+// whatever the terminal does), the node carries a second live terminal, or
+// the subtree already carries more than this one required node.
+fn RsTryTerminal(ref d: Design, t: i32) -> bool {
+  let v: i32 = d.term_node[t];
+  if (d.seed_dist[RsFixedBase() + v] != 0 or
+      d.seed_dist[RsTermBase() + v] != 1 or
+      d.seed_dist[RsCntBase() + v] != 1) {
+    return false;
+  }
+  let ps: i32 = d.seed_dist[RsPStart() + t];
+  let np: i32 = d.seed_dist[RsPStart() + t + 1] - ps;
+  if (np <= 0 or np > 16) {
+    return false;
+  }
+  RsWalkSpur(ref d, v);
+  if (d.rs_cand_n == 0) {
+    return false;
+  }
+  d.rs_spurs += 1;
+
+  let vx: i32 = d.node_x[v];
+  let vy: i32 = d.node_y[v];
+  var pid: array(i32, 16);
+  var sum_old_len: i64 = 0;
+  var sum_old_x: i64 = 0;
+  var i: i32 = 0;
+  while (i < np) {
+    let p: i32 = d.seed_dist[RsPList() + ps + i];
+    pid[i] = p;
+    sum_old_len += d.prem_drop_len[p] as i64;
+    sum_old_x += CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p], v) as i64;
+    ++i;
+  }
+
+  var best_delta: i64 = 0;   // strict improvement only
+  var best_k: i32 = -1;
+  var best_node: i32 = -1;
+  var k: i32 = 0;
+  while (k < d.rs_cand_n) {
+    let c: i32 = d.rs_cand[k];
+    let cx: i32 = d.node_x[c];
+    let cy: i32 = d.node_y[c];
+    var ok: bool = true;
+    var sum_new_len: i64 = 0;
+    var sum_new_x: i64 = 0;
+    var worst_len: i32 = 0;
+    i = 0;
+    while (i < np) {
+      let p: i32 = pid[i];
+      let nl: i32 = DistM(d.prem_x[p], d.prem_y[p], cx, cy);
+      if (nl > MaxDropM()) {
+        ok = false;   // the 150 m drop rule makes this position infeasible
+        break;
+      }
+      if (nl > worst_len) { worst_len = nl; }
+      sum_new_len += nl as i64;
+      sum_new_x +=
+          CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p], c) as i64;
+      ++i;
+    }
+    // Optical budget proxy. The FDH is required, so it is never inside the
+    // spur's subtree, which means the tree route FDH -> terminal runs
+    // through c and shortens by exactly the spur meters retired.
+    // term_path_len is still RouteDistribution's value here — an
+    // over-estimate of the tree route, so the check errs safe; the exact
+    // gate is TrenchRouteOverBudget after the fibers are re-routed.
+    if (ok and d.fdh_route_len[d.term_cluster[t]] + d.term_path_len[t] -
+                   d.rs_span[k] + worst_len > MaxRouteM()) {
+      ok = false;
+    }
+    if (ok) {
+      var delta: i64 = 0 - d.rs_freed[k];
+      delta += DropCablePerM() * (sum_new_len - sum_old_len);
+      delta += 50000 * (sum_new_x - sum_old_x);
+      // The drop-drop term is the expensive one to evaluate and (per
+      // research.md 3.3's haircut ii) the one that gets WORSE as terminals
+      // concentrate, so it is only spent on positions that already pay
+      // without it. That narrows the neighbourhood; it never lets an
+      // unpriced move through, which is the property that matters.
+      if (delta < 0) {
+        var dd: i32 = 0;
+        i = 0;
+        while (i < np) {
+          let p: i32 = pid[i];
+          dd += RsDropDropDelta(ref d, t, d.prem_x[p], d.prem_y[p],
+                                vx, vy, cx, cy);
+          ++i;
+        }
+        delta += 20000 * (dd as i64);
+        if (delta < best_delta or (delta == best_delta and c < best_node)) {
+          best_delta = delta;
+          best_k = k;
+          best_node = c;
+        }
+      }
+    }
+    ++k;
+  }
+  if (best_k < 0) {
+    return false;
+  }
+
+  // Apply. Only the site and the drops that hang off it move.
+  let c: i32 = d.rs_cand[best_k];
+  d.term_node[t] = c;
+  i = 0;
+  while (i < np) {
+    let p: i32 = pid[i];
+    d.prem_drop_len[p] = DistM(d.prem_x[p], d.prem_y[p],
+                               d.node_x[c], d.node_y[c]);
+    ++i;
+  }
+  // Required set and subtree counts move with it, so the rest of this round
+  // prices the tree that now exists rather than the one it started from
+  // (research.md 3.3's haircut iii, which its own measurement skipped).
+  // Ancestors of c see one node leave and one arrive, so they net to zero;
+  // the spur interior drops to zero and c only loses a count if it was
+  // already required.
+  d.seed_dist[RsTermBase() + v] = 0;
+  d.seed_dist[RsTermBase() + c] += 1;
+  let c_was_req: bool = d.kp_req[c];
+  d.kp_req[v] = false;
+  d.kp_req[c] = true;
+  var w: i32 = v;
+  while (w != c) {
+    d.seed_dist[RsCntBase() + w] -= 1;
+    w = d.tree_parent_node[w];
+  }
+  if (c_was_req) {
+    d.seed_dist[RsCntBase() + c] -= 1;
+  }
+  d.rs_moves += 1;
+  d.rs_freed_cents += d.rs_freed[best_k];
+  d.rs_freed_m += d.rs_span[best_k];
+  d.rs_gain += best_delta;
+  return true;
+}
+
+// Drops every edge whose child-side subtree holds no required node — the
+// spurs the accepted moves just orphaned. Phase 4 would have pruned them
+// from `trench_used` anyway (no cable runs there), but taking them out of
+// forest_edge keeps the tree and its reported meters honest for phases 2-3
+// and for the diagnostics. A subtree with no required node is exactly what
+// may be deleted without disconnecting anything, so the result is a tree.
+fn RsPruneDeadSpurs(ref d: Design) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    if (d.in_tree[n] and d.tree_parent_edge[n] != -1 and
+        d.seed_dist[RsCntBase() + n] == 0) {
+      d.forest_edge[d.tree_parent_edge[n]] = false;
+    }
+    ++n;
+  }
+}
+
+// Rounds to fixpoint (capped). Each accept strictly decreases a bounded
+// non-negative integer objective — the priced delta understates the true
+// saving, because the cable that rode the retired spur is not counted — so
+// the loop terminates, and terminals are tried in ascending id, so which
+// fixpoint it lands on is determined.
+fn ResiteTerminals(ref d: Design) {
+  d.rs_rounds = 0;
+  d.rs_moves = 0;
+  d.rs_spurs = 0;
+  d.rs_freed_cents = 0;
+  d.rs_freed_m = 0;
+  d.rs_gain = 0;
+  RsBuildPremGrid(ref d);
+  RsBucketPremises(ref d);
+  var r: i32 = 0;
+  while (r < 6) {
+    RsMarkRequired(ref d);
+    RsRootTree(ref d);
+    RsCounts(ref d);
+    d.rs_spurs = 0;   // the last round's census is the residual
+    var moves: i32 = 0;
+    var t: i32 = 0;
+    while (t < d.term_count) {
+      if (RsTryTerminal(ref d, t)) {
+        ++moves;
+      }
+      ++t;
+    }
+    d.rs_rounds += 1;
+    ++r;
+    if (moves == 0) {
+      break;
+    }
+  }
+  if (d.rs_moves > 0) {
+    RsMarkRequired(ref d);
+    RsRootTree(ref d);
+    RsCounts(ref d);
+    RsPruneDeadSpurs(ref d);
+  }
+}
+
+// Puts every terminal back where the packing stage sited it, and with it
+// the drops that follow. Paired with KpRestoreTree in the route-budget undo:
+// phases 2-3 have to be re-run against the tree AND the sites they were
+// measured on.
+fn RsRestoreSites(ref d: Design) {
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    d.term_node[t] = d.rs_saved_node[t];
+    ++t;
+  }
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let tp: i32 = d.prem_terminal[p];
+    if (tp != -1) {
+      d.prem_drop_len[p] = DistM(d.prem_x[p], d.prem_y[p],
+                                 d.node_x[d.term_node[tp]],
+                                 d.node_y[d.term_node[tp]]);
+    }
+    ++p;
+  }
+}
+
 // DeloopTrench phases 2-3, factored out so the route-budget guard can run
 // them, look at the result, and re-run them on the restored tree. Fibers
 // feed TERMINAL locations (post-merge assignment), so the kept trench always
@@ -2232,6 +2738,21 @@ fn DeloopTrench(ref d: Design) {
     d.kp_rollback = 2;
   }
 
+  // Read the key-path result off the tree BEFORE re-siting touches it, so
+  // the 9a diagnostic keeps meaning what it meant at iter 011.
+  d.kp_trench_after = KpTreeMeters(ref d);
+  d.kp_cents_after = KpTreeCents(ref d);
+
+  // Phase 1c: priced terminal re-siting on the private spurs of the tree
+  // that survived 1b (stage 9c). Sites are kept so the route-budget undo
+  // below can restore the pair — tree and terminals — it measured.
+  var t0: i32 = 0;
+  while (t0 < d.term_count) {
+    d.rs_saved_node[t0] = d.term_node[t0];
+    ++t0;
+  }
+  ResiteTerminals(ref d);
+
   // Phases 2-3: re-route distribution and feeder on the tree, then check the
   // optical budget the exchange could have blown and undo the whole pass if
   // it did. Rolling back wholesale rather than per-move is the cheap correct
@@ -2239,14 +2760,19 @@ fn DeloopTrench(ref d: Design) {
   // a per-move check would cost more than the search itself.
   RouteOnTrenchTree(ref d);
   var over: i32 = TrenchRouteOverBudget(ref d);
-  if (d.kp_moves > 0 and d.kp_rollback == 0 and over > 0) {
+  if ((d.kp_moves > 0 or d.rs_moves > 0) and d.kp_rollback == 0 and over > 0) {
     KpRestoreTree(ref d);
+    RsRestoreSites(ref d);
     d.kp_rollback = 1;
+    d.kp_trench_after = d.kp_trench_before;
+    d.kp_cents_after = d.kp_cents_before;
+    d.rs_moves = 0;
+    d.rs_freed_m = 0;
+    d.rs_freed_cents = 0;
+    d.rs_gain = 0;
     RouteOnTrenchTree(ref d);
     over = TrenchRouteOverBudget(ref d);  // refreshes the reported max too
   }
-  d.kp_trench_after = KpTreeMeters(ref d);
-  d.kp_cents_after = KpTreeCents(ref d);
 
   // Phase 4: trench only where cable actually runs. A subset of a forest
   // is acyclic, so the scorer's cyclomatic number is 0 by construction.
