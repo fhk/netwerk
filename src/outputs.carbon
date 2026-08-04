@@ -923,6 +923,24 @@ fn SweepScore(ref d: Design) -> i64 {
 // report lines between "qa:" and "qa verdict:".
 fn PrintSweeps(ref d: Design) {
   Core.PrintStr("sweeps:\n");
+  // Stage 3c/3d: unit-weighted meters premises -> its own cabinet, on the
+  // one table that matters (distance from the sites actually built). The
+  // three numbers are the same assignment problem scored three ways:
+  // what the farthest-point seeds chose, what one Lloyd step chose, and
+  // the transportation optimum at those same sites.
+  Core.PrintStr("  assignment_m: seeds=");
+  PrintI64(d.assign_cost_seed);
+  Core.PrintStr(" lloyd=");
+  PrintI64(d.assign_cost_lloyd);
+  Core.PrintStr(" exact=");
+  PrintI64(d.assign_cost_exact);
+  Core.PrintStr(" cycles=");
+  PrintInt(d.assign_cycles);
+  Core.PrintStr(" moved=");
+  PrintInt(d.assign_moved);
+  Core.PrintStr(" stop=");
+  PrintInt(d.assign_stop);
+  NL();
   Core.PrintStr("  trench_price_cents: min=");
   PrintInt(d.pi_min);
   Core.PrintStr(" median=");

@@ -189,9 +189,66 @@ fn SnapPremises(ref d: Design) {
 // Stage 3 — capacitated clustering into serving areas
 // ---------------------------------------------------------------------------
 
-// Seeds by farthest-point sampling on graph distance, then greedy
-// capacity-respecting assignment — multi-unit premises first (first-fit
-// decreasing), so MDUs always find a serving area with room.
+// Greedy capacity-respecting assignment against whatever reference nodes
+// currently fill `seed_dist` — multi-unit premises first (first-fit
+// decreasing), so MDUs always find a serving area with room. Factored out
+// of Cluster because stage 3c re-runs it against the built FDH sites.
+fn AssignPremises(ref d: Design) {
+  let k: i32 = d.cluster_count;
+  var s: i32 = 0;
+  while (s < k) {
+    d.cluster_units[s] = 0;
+    d.cluster_prems[s] = 0;
+    ++s;
+  }
+
+  // Two assignment passes: MDUs (units > 1) first, then single units.
+  var pass: i32 = 0;
+  while (pass < 2) {
+    var p2: i32 = 0;
+    while (p2 < d.prem_count) {
+      let is_mdu: bool = d.prem_units[p2] > 1;
+      if ((pass == 0 and is_mdu) or (pass == 1 and not is_mdu)) {
+        // Nearest reference node with spare capacity; ties -> lowest index.
+        var assigned: i32 = -1;
+        var best_d: i32 = 2147483647;
+        var c: i32 = 0;
+        while (c < k) {
+          let dd: i32 = d.seed_dist[c * 12288 + p2];
+          let has_room: bool =
+              d.cluster_units[c] + d.prem_units[p2] <= MaxUnitsPerFdh();
+          if (has_room and dd < best_d) {
+            best_d = dd;
+            assigned = c;
+          }
+          ++c;
+        }
+        if (assigned == -1) {
+          // Nothing has room; spill to the nearest regardless — QA reports
+          // the capacity violation honestly.
+          var c2: i32 = 0;
+          var best_d2: i32 = 2147483647;
+          while (c2 < k) {
+            let dd2: i32 = d.seed_dist[c2 * 12288 + p2];
+            if (dd2 < best_d2) {
+              best_d2 = dd2;
+              assigned = c2;
+            }
+            ++c2;
+          }
+        }
+        d.prem_cluster[p2] = assigned;
+        d.cluster_units[assigned] += d.prem_units[p2];
+        d.cluster_prems[assigned] += 1;
+      }
+      ++p2;
+    }
+    ++pass;
+  }
+}
+
+// Seeds by farthest-point sampling on graph distance, then the greedy
+// capacity-respecting assignment above.
 fn Cluster(ref d: Design) {
   var k: i32 = CeilDiv(d.total_units, MaxUnitsPerFdh());
   if (k < 1) {
@@ -240,56 +297,7 @@ fn Cluster(ref d: Design) {
     ++s;
   }
 
-  s = 0;
-  while (s < k) {
-    d.cluster_units[s] = 0;
-    d.cluster_prems[s] = 0;
-    ++s;
-  }
-
-  // Two assignment passes: MDUs (units > 1) first, then single units.
-  var pass: i32 = 0;
-  while (pass < 2) {
-    var p2: i32 = 0;
-    while (p2 < d.prem_count) {
-      let is_mdu: bool = d.prem_units[p2] > 1;
-      if ((pass == 0 and is_mdu) or (pass == 1 and not is_mdu)) {
-        // Nearest seed with spare capacity.
-        var assigned: i32 = -1;
-        var best_d: i32 = 2147483647;
-        var c: i32 = 0;
-        while (c < k) {
-          let dd: i32 = d.seed_dist[c * 12288 + p2];
-          let has_room: bool =
-              d.cluster_units[c] + d.prem_units[p2] <= MaxUnitsPerFdh();
-          if (has_room and dd < best_d) {
-            best_d = dd;
-            assigned = c;
-          }
-          ++c;
-        }
-        if (assigned == -1) {
-          // No seed has room; spill to the nearest seed regardless — QA
-          // reports the capacity violation honestly.
-          var c2: i32 = 0;
-          var best_d2: i32 = 2147483647;
-          while (c2 < k) {
-            let dd2: i32 = d.seed_dist[c2 * 12288 + p2];
-            if (dd2 < best_d2) {
-              best_d2 = dd2;
-              assigned = c2;
-            }
-            ++c2;
-          }
-        }
-        d.prem_cluster[p2] = assigned;
-        d.cluster_units[assigned] += d.prem_units[p2];
-        d.cluster_prems[assigned] += 1;
-      }
-      ++p2;
-    }
-    ++pass;
-  }
+  AssignPremises(ref d);
 }
 
 // ---------------------------------------------------------------------------
@@ -426,6 +434,307 @@ fn PlaceFdh(ref d: Design) {
     d.fdh_node[c] = best_node;
     ++c;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3c — re-assign premises to the sites actually built (one Lloyd step)
+// ---------------------------------------------------------------------------
+
+// The defect this closes (research.md 1.1 item 2, appendix A finding D7):
+// `seed_dist` is measured from FARTHEST-POINT seeds, which are by
+// construction extremal nodes of the road graph, and PlaceFdh then
+// relocates every cabinet to a unit-weighted medoid and never re-assigns.
+// So the design optimized its assignment against reference points it does
+// not build, and every distribution fibre-metre downstream is priced off
+// the wrong table. Refilling `seed_dist` from `fdh_node` and re-running the
+// same greedy is exactly Lloyd's assignment step (A) at the updated
+// centers (B) — the only step whose exactness the descent proof needs.
+//
+// The cabinets stay where they are: re-running PlaceFdh here would move
+// the site off the members it was just assigned and reopen the same
+// mismatch one order smaller. `seed_dist` is scratch after this point
+// (PackTerminals reuses the array), so nothing downstream sees the seeds.
+
+// Unit-weighted graph meters from every premises to its serving area's
+// cabinet — the objective stage 3c descends, and the quantity the
+// distribution cable BOM is a concave function of.
+fn AssignCost(ref d: Design) -> i64 {
+  var total: i64 = 0;
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let c: i32 = d.prem_cluster[p];
+    if (c >= 0) {
+      total += (d.seed_dist[c * 12288 + p] as i64) * (d.prem_units[p] as i64);
+    }
+    ++p;
+  }
+  return total;
+}
+
+fn ReassignToFdh(ref d: Design) {
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    DijkstraFrom(ref d, d.fdh_node[c], ModeMeters());
+    var p: i32 = 0;
+    while (p < d.prem_count) {
+      d.seed_dist[c * 12288 + p] = d.dist[d.prem_snap_node[p]] as i32;
+      ++p;
+    }
+    ++c;
+  }
+  // Priced on the same table on both sides: what the seed-based assignment
+  // actually costs at the built sites, then what one Lloyd step costs.
+  d.assign_cost_seed = AssignCost(ref d);
+  AssignPremises(ref d);
+  d.assign_cost_lloyd = AssignCost(ref d);
+  d.assign_cost_exact = d.assign_cost_lloyd;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3d — exact capacitated transportation repair (research.md 1.2)
+// ---------------------------------------------------------------------------
+
+// One greedy pass is not the assignment step Lloyd's descent proof needs:
+// "nearest site with room" processed in id order exiles whatever is
+// considered last into whichever area still has slack, at unbounded ratio.
+// (Measured here: with the Lloyd step alone, premises 6710-6716 land 10 km
+// from their cabinet in the leftover area and blow the optical budget.)
+//
+// The exact fix is small because the problem is small. With integer demands
+// the assignment LP is a transportation problem, totally unimodular, so the
+// LP optimum IS the integer optimum; and the residual network condenses
+// onto the k <= 32 facilities: arc j -> j' priced at the cheapest single
+// premises that could move from j to j'. A feasible assignment is optimal
+// exactly when that condensed digraph has no negative cycle, so the repair
+// is: Bellman-Ford, cancel the cycle it finds, repeat. Every cancellation
+// strictly decreases a non-negative integer objective, so it terminates.
+//
+// Node k is a slack node: `j -> k` exists when j can absorb one more unit
+// and `k -> j` when j can release one, so a cycle through it is exactly an
+// improving PATH from a full area to one with spare capacity.
+//
+// Premises stay single-sourced (whole premises move, never fibres), and the
+// cycle is applied only if it keeps every area within the 432-unit cabinet
+// cap and non-empty — with u_p > 1 (MDU fixtures) a cycle need not preserve
+// loads, and a repair that breaks capacity to save meters is not a repair.
+fn TransportRepair(ref d: Design) {
+  let k: i32 = d.cluster_count;
+  if (k < 2) {
+    return;
+  }
+  let vn: i32 = k + 1;      // facilities + the slack node
+  let slack: i32 = k;
+  let cap: i32 = MaxUnitsPerFdh();
+  let inf: i64 = 4611686018427387904;   // half i64 max: safe to add to
+  d.assign_stop = 1;                    // downgraded on every clean exit
+
+  var w: array(i64, 1089);      // 33 x 33 condensed arc cost
+  var arg: array(i32, 1089);    // the premises each arc would move
+  var bfd: array(i64, 33);
+  var bfp: array(i32, 33);
+  var cyc: array(i32, 34);
+  var dl: array(i32, 33);       // per-area unit delta of the pending cycle
+  var dp: array(i32, 33);       // per-area premises delta
+
+  var guard: i32 = 0;
+  while (guard < 4096) {
+    ++guard;
+
+    // (1) Condense the residual network onto the facilities.
+    var u: i32 = 0;
+    while (u < vn) {
+      var v: i32 = 0;
+      while (v < vn) {
+        w[u * 33 + v] = inf;
+        arg[u * 33 + v] = -1;
+        ++v;
+      }
+      ++u;
+    }
+    var p: i32 = 0;
+    while (p < d.prem_count) {
+      let j: i32 = d.prem_cluster[p];
+      if (j >= 0) {
+        let up: i64 = d.prem_units[p] as i64;
+        let dj: i64 = d.seed_dist[j * 12288 + p] as i64;
+        var t: i32 = 0;
+        while (t < k) {
+          if (t != j) {
+            let delta: i64 =
+                up * ((d.seed_dist[t * 12288 + p] as i64) - dj);
+            let idx: i32 = j * 33 + t;
+            // Ties -> lowest premises id, so the cycle is reproducible.
+            if (delta < w[idx]) {
+              w[idx] = delta;
+              arg[idx] = p;
+            }
+          }
+          ++t;
+        }
+      }
+      ++p;
+    }
+    var j2: i32 = 0;
+    while (j2 < k) {
+      if (d.cluster_units[j2] < cap) {
+        w[j2 * 33 + slack] = 0;     // j2 can absorb a unit
+      }
+      if (d.cluster_prems[j2] > 1) {
+        w[slack * 33 + j2] = 0;     // j2 can release one and stay non-empty
+      }
+      ++j2;
+    }
+
+    // (2) Bellman-Ford with every label at zero — a virtual source into all
+    // nodes, so any negative cycle anywhere is detected. vn passes; a
+    // relaxation in the last one proves a negative cycle exists.
+    var v0: i32 = 0;
+    while (v0 < vn) {
+      bfd[v0] = 0;
+      bfp[v0] = -1;
+      ++v0;
+    }
+    var found: i32 = -1;
+    var pass: i32 = 0;
+    while (pass < vn) {
+      found = -1;
+      var uu: i32 = 0;
+      while (uu < vn) {
+        var vv: i32 = 0;
+        while (vv < vn) {
+          let wt: i64 = w[uu * 33 + vv];
+          if (wt < inf and bfd[uu] + wt < bfd[vv]) {
+            bfd[vv] = bfd[uu] + wt;
+            bfp[vv] = uu;
+            found = vv;
+          }
+          ++vv;
+        }
+        ++uu;
+      }
+      if (found == -1) {
+        break;
+      }
+      ++pass;
+    }
+    if (found == -1) {
+      d.assign_stop = 0;            // no negative cycle: certified optimal
+      break;
+    }
+
+    // (3) Walk vn predecessors back from the last relaxed node to land
+    // inside the cycle, then read the cycle off the predecessor chain.
+    var x: i32 = found;
+    var step: i32 = 0;
+    var broken: bool = false;
+    while (step < vn) {
+      if (bfp[x] == -1) {
+        broken = true;
+        break;
+      }
+      x = bfp[x];
+      ++step;
+    }
+    if (broken) {
+      d.assign_stop = 2;
+      break;
+    }
+    var clen: i32 = 1;
+    cyc[0] = x;
+    var y: i32 = bfp[x];
+    while (y != x and clen < 34) {
+      if (y == -1) {
+        broken = true;
+        break;
+      }
+      cyc[clen] = y;
+      ++clen;
+      y = bfp[y];
+    }
+    if (broken or y != x) {
+      d.assign_stop = 2;
+      break;
+    }
+
+    // (4) Price the cycle and stage its load deltas. cyc is in predecessor
+    // order, so the arcs are cyc[i+1] -> cyc[i], closing cyc[0] -> cyc[-1].
+    var ci: i32 = 0;
+    while (ci < vn) {
+      dl[ci] = 0;
+      dp[ci] = 0;
+      ++ci;
+    }
+    var gain: i64 = 0;
+    var arcs: i32 = 0;
+    var a: i32 = 0;
+    while (a < clen) {
+      var from: i32 = cyc[0];
+      if (a + 1 < clen) {
+        from = cyc[a + 1];
+      }
+      let to: i32 = cyc[a];
+      let wt2: i64 = w[from * 33 + to];
+      if (wt2 >= inf) {
+        broken = true;
+        break;
+      }
+      gain += wt2;
+      if (from != slack and to != slack) {
+        let mp: i32 = arg[from * 33 + to];
+        if (mp < 0) {
+          broken = true;
+          break;
+        }
+        dl[from] -= d.prem_units[mp];
+        dl[to] += d.prem_units[mp];
+        dp[from] -= 1;
+        dp[to] += 1;
+        ++arcs;
+      }
+      ++a;
+    }
+    if (broken or gain >= 0 or arcs == 0) {
+      d.assign_stop = 2;            // nothing provably improving left
+      break;
+    }
+    var feasible: bool = true;
+    var c2: i32 = 0;
+    while (c2 < k) {
+      if (d.cluster_units[c2] + dl[c2] > cap or
+          d.cluster_prems[c2] + dp[c2] < 1) {
+        feasible = false;
+      }
+      ++c2;
+    }
+    if (not feasible) {
+      d.assign_stop = 2;            // MDU-sized cycle would break a cabinet
+      break;
+    }
+
+    // (5) Apply. Each area appears once in a simple cycle, so the premises
+    // moved are distinct and the pre-cycle argmins all stay valid.
+    a = 0;
+    while (a < clen) {
+      var from2: i32 = cyc[0];
+      if (a + 1 < clen) {
+        from2 = cyc[a + 1];
+      }
+      let to2: i32 = cyc[a];
+      if (from2 != slack and to2 != slack) {
+        d.prem_cluster[arg[from2 * 33 + to2]] = to2;
+      }
+      ++a;
+    }
+    var c3: i32 = 0;
+    while (c3 < k) {
+      d.cluster_units[c3] += dl[c3];
+      d.cluster_prems[c3] += dp[c3];
+      ++c3;
+    }
+    d.assign_cycles += 1;
+    d.assign_moved += arcs;
+  }
+  d.assign_cost_exact = AssignCost(ref d);
 }
 
 // ---------------------------------------------------------------------------

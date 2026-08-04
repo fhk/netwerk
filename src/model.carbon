@@ -187,6 +187,12 @@ class Design {
     d.co_node = -1;
     d.total_units = 0;
     d.heap_size = 0;
+    d.assign_cost_seed = 0;
+    d.assign_cost_lloyd = 0;
+    d.assign_cost_exact = 0;
+    d.assign_cycles = 0;
+    d.assign_moved = 0;
+    d.assign_stop = 0;
     var i: i32 = 0;
     while (i < MaxNodes()) {
       d.adj_head[i] = -1;
@@ -317,6 +323,15 @@ class Design {
   var sweep_score_a: i64;          // sweep 1 (pi == 0), partial composite
   var sweep_score_b: i64;          // sweep 2 (pi priced)
   var sweep_kept: i32;             // 1 or 2
+
+  // --- stage 3c diagnostics (Lloyd re-assign + transportation repair) ---
+  var assign_cost_seed: i64;       // unit-weighted m against the seeds
+  var assign_cost_lloyd: i64;      // after re-assigning to the built sites
+  var assign_cost_exact: i64;      // after cancelling every negative cycle
+  var assign_cycles: i32;          // cycles cancelled
+  var assign_moved: i32;           // premises that changed serving area
+  var assign_stop: i32;            // 0 = optimality certificate, 1 = guard,
+                                   // 2 = stopped (capacity / degenerate)
 
   // --- edge spatial grid (128 m cells, 128x128; drop-crossing prefilter) ---
   var eg_minx: i32;

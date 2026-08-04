@@ -33,6 +33,8 @@ fn RunDesign(ref d: Design) {
   Cluster(ref d);
   RebalanceClusters(ref d);  // pack serving areas so cabinets run full
   PlaceFdh(ref d);
+  ReassignToFdh(ref d);      // assign against the sites actually built
+  TransportRepair(ref d);    // and make that assignment exactly optimal
 
   // Sweep 1 — identical to iter 007: node_pi is all zeros, so every move
   // price in stages.carbon reduces to what it was.
