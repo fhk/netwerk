@@ -190,6 +190,8 @@ class Design {
     var i: i32 = 0;
     while (i < MaxNodes()) {
       d.adj_head[i] = -1;
+      d.node_pi[i] = 0;       // sweep 1 prices trench at zero, as before
+      d.pi_bought[i] = false;
       ++i;
     }
     var e: i32 = 0;
@@ -279,6 +281,31 @@ class Design {
   var tree_parent_edge: array(i32, 16384);
   var node_path_m: array(i32, 16384);       // tree route meters node -> FDH
   var node_units: array(i32, 16384);        // demand units snapped per node
+
+  // --- connected-facility-location trench price (stage 6, iter 008) ---
+  // node_pi[v] = marginal trench cents to bring the ROUTED trench to v,
+  // i.e. the ConFL dual price the packing move cost was missing. Zero for
+  // every node the trench already touches, and identically zero on the
+  // first sweep (which therefore reproduces the pre-iter-008 design).
+  // pi_bought[v] = a terminal has already been sited at v this sweep, so
+  // the spur to v is paid for and further moves there price it at zero.
+  var node_pi: array(i32, 16384);
+  var pi_bought: array(bool, 16384);
+
+  // --- two-sweep bookkeeping, reported under "sweeps:" ---
+  var pi_min: i32;
+  var pi_med: i32;
+  var pi_max: i32;
+  var pi_nodes_over_50k: i32;      // road nodes whose spur costs > $500
+  var pi_cand_count: i32;          // road nodes within drop reach of a premises
+  var pi_cand_med: i32;            // median spur cents over those candidates
+  var pi_cand_over_50k: i32;
+  var pi_term_priced: i32;         // kept design's terminals with pi > 0
+  var pi_term_over_50k: i32;
+  var pi_term_sum: i64;            // total priced spur cents in the design
+  var sweep_score_a: i64;          // sweep 1 (pi == 0), partial composite
+  var sweep_score_b: i64;          // sweep 2 (pi priced)
+  var sweep_kept: i32;             // 1 or 2
 
   // --- edge spatial grid (128 m cells, 128x128; drop-crossing prefilter) ---
   var eg_minx: i32;

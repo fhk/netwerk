@@ -104,6 +104,48 @@ for deliberate, reviewed output changes (`BLESS=1`).
    WATCH: worst CO->premises route is now 18,060 m of the 20,000 m
    optical budget — further trench consolidation may need a
    length-capped Steiner variant before it trips route_length_budget.
+5b. ~~**Trench price inside the terminal-packing move cost (ConFL).**~~
+   DONE iter 008, total score -4,985,230 (1,006,158,940 ->
+   1,001,173,710); all of it on the district. research.md 5.1b / appendix
+   A ranked item 3: `TrenchCostPerM` appeared exactly ONCE in the engine
+   (DeloopTrench's Dijkstra) and never in `PackTerminals`, `TryDissolve`
+   or `MergeTerminals`, so the stage choosing which ~1,700 nodes the
+   trench must reach could not see the cost of reaching them. Implemented
+   as the cheap two-sweep Gauss-Seidel version (`src/pipeline.carbon`):
+   run the pipeline, price the routed trench with one multi-source
+   Dijkstra in `ModeTrenchMarginal` (open trench free, unopened at full
+   civil cost) into `node_pi`, re-run packing/merge with `pi_v` in ALL
+   FOUR move-price expressions, keep the better-scoring sweep. District:
+   capex 797,136,190 -> 793,690,960, trench 123,045 -> 122,256 m,
+   terminals 1,753 -> 1,732, under-4 511 -> 487; street crossings +14 and
+   drop-drop +8 (the price buys corridor reuse and pays a little geometry
+   for it). Scenarios byte-identical (their sweeps tie, so sweep 1 is
+   kept). QA green, 95.0% terminal-port utilization held.
+
+   **MEASURED COEFFICIENT** (the point of the experiment — three other
+   research.md techniques are budgeted against it). District `pi_v` over
+   all 15,668 road nodes, which here are all terminal candidates (every
+   node is within 150 m of a premises): min 0, **median 81,000 cents**,
+   max 1,669,500, and **9,342 of 15,668 (59.6%) above 50,000**. 81,000
+   cents is 18 m of soft trench — which independently reproduces
+   appendix A finding D4's ~20 m/terminal (35,387 m of single-serving
+   trench over 1,753 terminals, ~90,000 cents) and **refutes section 5's
+   flat 210,000 cents/terminal**, which was an arc elasticity across
+   iter 004, not a marginal rate. Use ~80-90k, not 210k, when sizing
+   §3.3 re-siting and the other pi-dependent techniques.
+
+   Two structural facts learned, both worth carrying forward:
+   (a) `pi_v` is ZERO at every terminal the unpriced sweep chose — the
+   trench is routed TO the terminals afterwards, so the price can never
+   indict the sites it already picked, only the alternatives. That is why
+   the two-sweep form is the only cheap way to get information out of it,
+   and why the interleaved grow-and-open variant (5.1a) is the real
+   prize: it prices sites *while* the corridor is still forming.
+   (b) The priced sweep put 100% of its terminals on pi = 0 nodes. The
+   price is strong enough (median 81k vs 50k per street crossing) to
+   dominate the crossing term, which is exactly why crossings ticked up.
+   A damped price (pi_v scaled by a fraction, or amortized over the
+   batch's expected size) is the obvious next probe.
 6. **Feeder/distribution duplicate-route audit.** Report and then shrink
    corridors where feeder and distribution (or two distribution clusters)
    run on parallel nearby edges when one shared trench would do;

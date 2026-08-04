@@ -66,6 +66,11 @@ cost:
   total_capex=$6748949.50
   per_unit_passed=$680.40
   trench_m=89900 cable_route_m=109200 sharing_x100=121
+sweeps:
+  trench_price_cents: min=0 median=0 max=0 nodes_over_50k=0
+  trench_price_candidates: n=900 median=0 over_50k=0
+  priced_sweep_terminals: priced=0 over_50k=0 spur_cents=0
+  sweep_score: unpriced=552898450 priced=552898450 kept=1
 qa:
   premises_served: ok
   drop_length: ok

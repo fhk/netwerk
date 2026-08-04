@@ -231,14 +231,25 @@ fn HeapPop(ref d: Design) -> i32 {
 // Weight modes for edge relaxation.
 fn ModeMeters() -> i32 { return 0; }
 fn ModeFeederCost() -> i32 { return 1; }
+fn ModeTrenchMarginal() -> i32 { return 2; }
 
 // Edge weight under a mode. ModeMeters routes by plain length (clustering,
 // facility location, distribution). ModeFeederCost routes feeder in cents,
 // discounting edges whose trench is already open — SCOPE.md's duct/trench
 // sharing falls out of the objective instead of special-case logic.
+// ModeTrenchMarginal is the same idea with the cable term dropped and the
+// discount made total: open trench is free, unopened trench costs its full
+// civil price, so a multi-source run from the routed trench measures the
+// MARGINAL cents of reaching each node (the ConFL price pi_v, iter 008).
 fn EdgeWeight(ref d: Design, e: i32, mode: i32) -> i64 {
   if (mode == ModeMeters()) {
     return d.edge_len[e] as i64;
+  }
+  if (mode == ModeTrenchMarginal()) {
+    if (d.trench_used[e]) {
+      return 0;
+    }
+    return (d.edge_len[e] as i64) * TrenchCostPerM(d.edge_surface[e]);
   }
   var per_m: i64 = CableCostPerM(4);  // representative feeder cable, 144f
   if (not d.trench_used[e]) {

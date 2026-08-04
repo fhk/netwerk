@@ -12,6 +12,7 @@ import library "model";
 import library "graph";
 import library "stages";
 import library "outputs";
+import library "pipeline";
 
 fn Run() -> i32 {
   var d: Design = Design.Make();
@@ -25,16 +26,7 @@ fn Run() -> i32 {
     return 2;
   }
 
-  SnapPremises(ref d);
-  Cluster(ref d);
-  RebalanceClusters(ref d);
-  PlaceFdh(ref d);
-  RouteDistribution(ref d);
-  MergeTerminals(ref d);
-  ProvisionSplitters(ref d);
-  SelectCo(ref d);
-  RouteFeeder(ref d);
-  DeloopTrench(ref d);
+  RunDesign(ref d);
 
   PrintGeometry(ref d);
   return 0;

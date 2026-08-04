@@ -434,6 +434,23 @@ fn PlaceFdh(ref d: Design) {
 
 // Closes the open terminal: picks the smallest catalog size covering the
 // ports actually used, so remainders never strand a 12-port unit.
+// Marginal trench price of putting a terminal on `node`, in cents — the
+// term every move price in this file was missing (research.md 5.1b: of
+// the whole engine, TrenchCostPerM appeared ONCE, inside DeloopTrench's
+// Dijkstra, so the stage that decides which ~1,700 nodes the trench must
+// reach could not see the cost of reaching them). Zero on the first sweep
+// and zero for every node the routed trench already touches; ComputePi
+// fills the rest from the previous sweep's tree. Once a terminal is sited
+// at a node the spur is bought, so later moves there price it at zero —
+// otherwise a second batch on the same corner would pay for the same
+// trench twice.
+fn NodePi(ref d: Design, node: i32) -> i64 {
+  if (d.pi_bought[node]) {
+    return 0;
+  }
+  return d.node_pi[node] as i64;
+}
+
 fn CloseTerminal(ref d: Design, t: i32) {
   var idx: i32 = 0;
   while (idx < TerminalSizeCount() - 1 and
@@ -648,6 +665,10 @@ fn PackTerminals(ref d: Design, c: i32) {
         continue;
       }
       // New-batch moves at catalog sizes (plus the 1-premises fallback).
+      // A new batch is a new node for the trench to reach, so it carries
+      // the marginal trench price; the ratio compare then amortizes that
+      // spur over the batch, exactly as the ConFL greedy does.
+      let pi_open: i64 = NodePi(ref d, ni);
       var pc: i64 = 0;
       var pd: i64 = 0;
       var kk: i32 = 0;
@@ -661,7 +682,7 @@ fn PackTerminals(ref d: Design, c: i32) {
             ++sidx;
           }
           var cost: i64 = 50000 * pc + TerminalCost(sidx) +
-                          DropCablePerM() * pd;
+                          DropCablePerM() * pd + pi_open;
           if (k < 4) {
             cost += 100000;
           }
@@ -683,10 +704,15 @@ fn PackTerminals(ref d: Design, c: i32) {
                TerminalSize(nidx) < used + 1) {
           ++nidx;
         }
+        // Trench price too, for symmetry with the new-batch move — it is
+        // zero by construction here (a terminal already stands on ni, so
+        // the spur is bought), which is precisely why attach should get
+        // cheaper relative to opening off-corridor.
         var cost2: i64 = 50000 * (ac[0] as i64) +
                          TerminalCost(nidx) -
                          TerminalCost(d.term_size_idx[t]) +
-                         DropCablePerM() * (ad[0] as i64);
+                         DropCablePerM() * (ad[0] as i64) +
+                         NodePi(ref d, ni);
         if (used == 3) {
           cost2 -= 100000;  // growth lifts the terminal out of under-4
         }
@@ -718,6 +744,7 @@ fn PackTerminals(ref d: Design, c: i32) {
       d.term_ports_used[tgt] = 0;
       d.term_path_len[tgt] = 0;  // set after distribution routing
       term_at[node] = tgt;
+      d.pi_bought[node] = true;  // spur to this node is now paid for
     } else {
       tgt = term_at[node];
     }
@@ -921,6 +948,24 @@ fn TryDissolve(ref d: Design, t: i32, force: bool) -> bool {
   if (d.term_ports_used[t] < 4) {
     gain += 100000;
   }
+  // ... plus the trench spur this terminal forced, if no other live
+  // terminal still stands on its node (iter 008). This is the same
+  // ConFL price the packing move pays on the way in; retiring an
+  // off-corridor terminal releases the civil cost of reaching it, which
+  // is exactly the trade the merge pass could not see before.
+  var shares_node: bool = false;
+  var q: i32 = 0;
+  while (q < d.term_count) {
+    if (q != t and d.term_ports_used[q] > 0 and
+        d.term_node[q] == d.term_node[t]) {
+      shares_node = true;
+      break;
+    }
+    ++q;
+  }
+  if (not shares_node) {
+    gain += d.node_pi[d.term_node[t]] as i64;
+  }
   var cost: i64 = 0;
   var installed_delta: i64 = 0 - (TerminalSize(d.term_size_idx[t]) as i64);
   var chosen: array(i32, 12);
@@ -960,8 +1005,13 @@ fn TryDissolve(ref d: Design, t: i32, force: bool) -> bool {
           if (dd <= MaxDropM()) {
             let xc: i32 = CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
                                              d.term_node[v]);
+            // Trench price of the receiving node, for symmetry with the
+            // packing moves — zero by construction (v is a live terminal,
+            // so its spur is already bought), but priced explicitly so
+            // every move in the file reads the same cost model.
             let mc: i64 = 50000 * (xc as i64) + step +
-                          DropCablePerM() * (dd as i64);
+                          DropCablePerM() * (dd as i64) +
+                          NodePi(ref d, d.term_node[v]);
             if (best == -1 or mc < best_cost or
                 (mc == best_cost and
                  (xc < best_cross or
@@ -983,7 +1033,8 @@ fn TryDissolve(ref d: Design, t: i32, force: bool) -> bool {
     let old_cross: i32 = CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
                                             d.term_node[t]);
     cost += 50000 * ((best_cross - old_cross) as i64) + best_step +
-            DropCablePerM() * ((best_dist - d.prem_drop_len[p]) as i64);
+            DropCablePerM() * ((best_dist - d.prem_drop_len[p]) as i64) +
+            NodePi(ref d, d.term_node[best]);  // zero: spur already bought
     if (scratch[best] == 3) {
       gain += 100000;  // target crosses the under-4 line at 4
     }
@@ -1433,4 +1484,242 @@ fn DeloopTrench(ref d: Design) {
                        (d.dist_fibers[e] > 0 or d.feeder_fibers[e] > 0);
     ++e;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Stage 10 — connected-facility-location price feedback (iter 008)
+// ---------------------------------------------------------------------------
+
+// Fills node_pi from the trench this run actually routed: one multi-source
+// Dijkstra in ModeTrenchMarginal seeded from every node the used trench
+// touches, so pi_v is the cheapest incremental civil spend that would
+// bring the tree to v (0 on the corridor itself). Dijkstra labels are
+// unique given the weights, so pi is determined regardless of heap pop
+// order among equal keys. Also measures the distribution — min, median by
+// binary search on the value, max, and how many nodes cost more than the
+// street-crossing penalty to reach — because the coefficient is the point
+// of the experiment, not a side effect (research.md appendix A, D4).
+fn ComputePi(ref d: Design) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.in_tree[n] = false;
+    ++n;
+  }
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    if (d.trench_used[e]) {
+      d.in_tree[d.edge_from[e]] = true;
+      d.in_tree[d.edge_to[e]] = true;
+    }
+    ++e;
+  }
+  DijkstraReset(ref d);
+  n = 0;
+  while (n < d.node_count) {
+    if (d.in_tree[n]) {
+      AddSource(ref d, n);
+    }
+    ++n;
+  }
+  DijkstraRun(ref d, ModeTrenchMarginal());
+
+  d.pi_min = 2147483647;
+  d.pi_max = 0;
+  d.pi_nodes_over_50k = 0;
+  n = 0;
+  while (n < d.node_count) {
+    var pv: i64 = d.dist[n];
+    if (pv >= Unreached()) {
+      pv = 0;  // unreachable node: no spur is possible, so price nothing
+    }
+    if (pv > 2000000000) {
+      pv = 2000000000;
+    }
+    let pi32: i32 = pv as i32;
+    d.node_pi[n] = pi32;
+    if (pi32 < d.pi_min) { d.pi_min = pi32; }
+    if (pi32 > d.pi_max) { d.pi_max = pi32; }
+    if (pi32 > 50000) { d.pi_nodes_over_50k += 1; }
+    ++n;
+  }
+  if (d.node_count == 0) {
+    d.pi_min = 0;
+  }
+
+  // Median by binary search on the value: smallest v with #{pi <= v}
+  // at least half the nodes. 31 counting passes, fully deterministic.
+  var lo: i64 = 0;
+  var hi: i64 = d.pi_max as i64;
+  let half: i32 = (d.node_count + 1) / 2;
+  while (lo < hi) {
+    let mid: i64 = (lo + hi) / 2;
+    var below: i32 = 0;
+    n = 0;
+    while (n < d.node_count) {
+      if ((d.node_pi[n] as i64) <= mid) {
+        below += 1;
+      }
+      ++n;
+    }
+    if (below >= half) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  d.pi_med = lo as i32;
+
+  // The population that actually matters is not "every road node" but
+  // "every node a terminal could legally stand on" — inside 150 m of some
+  // premises. That distribution IS the marginal-trench-per-terminal
+  // coefficient three other research.md techniques are budgeted against
+  // (appendix A, D4: ~90,000 cents at the top, ~0 in the middle, NOT the
+  // flat 210,000 of section 5). Same bounding-box-then-exact scan the
+  // packing pair table uses, so the two see the same candidate set.
+  // in_tree is free scratch here: RouteDistribution rebuilds it.
+  n = 0;
+  while (n < d.node_count) {
+    d.in_tree[n] = false;
+    ++n;
+  }
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    n = 0;
+    while (n < d.node_count) {
+      if (not d.in_tree[n] and
+          d.node_x[n] >= d.prem_x[p] - MaxDropM() and
+          d.node_x[n] <= d.prem_x[p] + MaxDropM() and
+          d.node_y[n] >= d.prem_y[p] - MaxDropM() and
+          d.node_y[n] <= d.prem_y[p] + MaxDropM() and
+          DistM(d.prem_x[p], d.prem_y[p], d.node_x[n], d.node_y[n]) <=
+              MaxDropM()) {
+        d.in_tree[n] = true;
+      }
+      ++n;
+    }
+    ++p;
+  }
+  d.pi_cand_count = 0;
+  d.pi_cand_over_50k = 0;
+  var cand_max: i64 = 0;
+  n = 0;
+  while (n < d.node_count) {
+    if (d.in_tree[n]) {
+      d.pi_cand_count += 1;
+      if (d.node_pi[n] > 50000) {
+        d.pi_cand_over_50k += 1;
+      }
+      if ((d.node_pi[n] as i64) > cand_max) {
+        cand_max = d.node_pi[n] as i64;
+      }
+    }
+    ++n;
+  }
+  lo = 0;
+  hi = cand_max;
+  let cand_half: i32 = (d.pi_cand_count + 1) / 2;
+  while (lo < hi) {
+    let mid: i64 = (lo + hi) / 2;
+    var below: i32 = 0;
+    n = 0;
+    while (n < d.node_count) {
+      if (d.in_tree[n] and (d.node_pi[n] as i64) <= mid) {
+        below += 1;
+      }
+      ++n;
+    }
+    if (below >= cand_half) {
+      hi = mid;
+    } else {
+      lo = mid + 1;
+    }
+  }
+  d.pi_cand_med = lo as i32;
+}
+
+// Drops node_pi back to zero: the unpriced sweep must be reproducible
+// bit-for-bit, so the fallback re-run starts from the same state sweep 1
+// started from.
+fn ZeroPi(ref d: Design) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.node_pi[n] = 0;
+    ++n;
+  }
+}
+
+// Measures the kept design against the price that produced it: how many
+// live terminals sit off the previous sweep's corridor, and what their
+// spurs are worth. All zero when sweep 1 is kept (its terminals define
+// the corridor pi was measured from).
+fn MeasurePiOnTerminals(ref d: Design) {
+  d.pi_term_priced = 0;
+  d.pi_term_over_50k = 0;
+  d.pi_term_sum = 0;
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    if (d.term_ports_used[t] > 0) {
+      let pv: i32 = d.node_pi[d.term_node[t]];
+      if (pv > 0) {
+        d.pi_term_priced += 1;
+        d.pi_term_sum += pv as i64;
+      }
+      if (pv > 50000) {
+        d.pi_term_over_50k += 1;
+      }
+    }
+    ++t;
+  }
+}
+
+// Clears every piece of state the packing/routing/costing stages write,
+// so a second sweep starts from exactly what PlaceFdh left behind. The
+// clustering, FDH siting and graph are untouched — they do not depend on
+// terminals, and re-deriving them would only cost time. Correctness of
+// this reset is checkable: with pi forced to zero, sweep 2 must score
+// identically to sweep 1.
+fn ResetForSweep(ref d: Design) {
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    d.prem_terminal[p] = -1;
+    d.prem_drop_len[p] = DistM(d.prem_x[p], d.prem_y[p],
+                               d.node_x[d.prem_snap_node[p]],
+                               d.node_y[d.prem_snap_node[p]]);
+    ++p;
+  }
+  d.term_count = 0;
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    d.trench_used[e] = false;
+    d.forest_edge[e] = false;
+    d.dist_fibers[e] = 0;
+    d.feeder_fibers[e] = 0;
+    ++e;
+  }
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    d.fdh_route_len[c] = 0;
+    var i: i32 = 0;
+    while (i < SplitterSizeCount()) {
+      d.fdh_split_by_size[c * 5 + i] = 0;  // ProvisionSplitters accumulates
+      ++i;
+    }
+    ++c;
+  }
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.pi_bought[n] = false;
+    ++n;
+  }
+}
+
+// Everything from terminal packing to the delooped trench — the part of
+// the pipeline a sweep re-decides. Clustering and FDH siting stay put.
+fn DesignSweep(ref d: Design) {
+  RouteDistribution(ref d);  // packs terminals per serving area as it goes
+  MergeTerminals(ref d);     // scorer-priced dissolve + utilization repair
+  ProvisionSplitters(ref d);
+  SelectCo(ref d);
+  RouteFeeder(ref d);
+  DeloopTrench(ref d);       // acyclic used trench: re-route cables on the MSF
 }

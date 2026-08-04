@@ -729,3 +729,228 @@ fn PrintGeometry(ref d: Design) {
   }
   Core.PrintStr("END\n");
 }
+
+// ---------------------------------------------------------------------------
+// Sweep scoring — the comparison that decides which packing sweep ships
+// ---------------------------------------------------------------------------
+
+fn IMin(a: i32, b: i32) -> i32 {
+  if (a < b) { return a; }
+  return b;
+}
+
+fn IMax(a: i32, b: i32) -> i32 {
+  if (a > b) { return a; }
+  return b;
+}
+
+// Street crossings over every connected drop — the scorer's own predicate
+// via the shared edge grid, so the engine ranks sweeps on the same number
+// the ledger will report.
+fn DropStreetCrossings(ref d: Design) -> i32 {
+  var total: i32 = 0;
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let t: i32 = d.prem_terminal[p];
+    if (t != -1) {
+      total += CountDropCrossings(ref d, d.prem_x[p], d.prem_y[p],
+                                  d.term_node[t]);
+    }
+    ++p;
+  }
+  return total;
+}
+
+// Drop-drop proper crossings, each unordered pair once. Bounding boxes
+// that do not overlap cannot properly cross, so the prefilter is exact —
+// it matches the scorer's grid hash, which is a coarser superset of the
+// same test.
+fn DropDropCrossings(ref d: Design) -> i32 {
+  var total: i32 = 0;
+  var i: i32 = 0;
+  while (i < d.prem_count) {
+    let ti: i32 = d.prem_terminal[i];
+    if (ti == -1) {
+      ++i;
+      continue;
+    }
+    let px: i32 = d.prem_x[i];
+    let py: i32 = d.prem_y[i];
+    let qx: i32 = d.node_x[d.term_node[ti]];
+    let qy: i32 = d.node_y[d.term_node[ti]];
+    let lox: i32 = IMin(px, qx);
+    let hix: i32 = IMax(px, qx);
+    let loy: i32 = IMin(py, qy);
+    let hiy: i32 = IMax(py, qy);
+    var j: i32 = i + 1;
+    while (j < d.prem_count) {
+      let tj: i32 = d.prem_terminal[j];
+      if (tj != -1) {
+        let rx: i32 = d.prem_x[j];
+        let ry: i32 = d.prem_y[j];
+        let sx: i32 = d.node_x[d.term_node[tj]];
+        let sy: i32 = d.node_y[d.term_node[tj]];
+        if (IMax(rx, sx) >= lox and IMin(rx, sx) <= hix and
+            IMax(ry, sy) >= loy and IMin(ry, sy) <= hiy and
+            ProperCross(px, py, qx, qy, rx, ry, sx, sy)) {
+          ++total;
+        }
+      }
+      ++j;
+    }
+    ++i;
+  }
+  return total;
+}
+
+// The QA families a packing sweep can actually move, counted the way the
+// scorer counts them: one error per failing CHECK, not per failing item.
+// Cabinet/splitter/OLT families depend only on the cluster assignment,
+// which no sweep touches, so they cannot differ between sweeps.
+fn SweepQaErrors(ref d: Design) -> i32 {
+  var errors: i32 = 0;
+  var unserved: i32 = 0;
+  var long_drops: i32 = 0;
+  var over_budget: i32 = 0;
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let t: i32 = d.prem_terminal[p];
+    if (d.prem_cluster[p] == -1 or t == -1) {
+      ++unserved;
+    }
+    if (d.prem_drop_len[p] > MaxDropM()) {
+      ++long_drops;
+    }
+    if (t != -1) {
+      let route_m: i32 = d.fdh_route_len[d.prem_cluster[p]] +
+                         d.term_path_len[t] + d.prem_drop_len[p];
+      if (route_m > MaxRouteM()) {
+        ++over_budget;
+      }
+    }
+    ++p;
+  }
+  if (unserved > 0) { ++errors; }
+  if (long_drops > 0) { ++errors; }
+  if (over_budget > 0) { ++errors; }
+
+  var over_ports: i32 = 0;
+  var t2: i32 = 0;
+  while (t2 < d.term_count) {
+    if (d.term_ports_used[t2] > TerminalSize(d.term_size_idx[t2])) {
+      ++over_ports;
+    }
+    ++t2;
+  }
+  if (over_ports > 0) { ++errors; }
+
+  let used: i32 = TerminalPortsUsed(ref d);
+  let installed: i32 = TerminalPortsInstalled(ref d);
+  if (PctX10(used, installed) < UtilizationFloorPct() * 10) {
+    ++errors;
+  }
+  return errors;
+}
+
+// Composite score of the current design, restricted to the terms a
+// packing sweep can change: trench, all cable, drop cable, terminal
+// hardware, and every penalty in tools/score_design.py's formula. FDH
+// cabinets, splitters, OLT cards and drop assemblies follow from the
+// cluster assignment, which sweeps leave alone, so they are constant
+// offsets and are omitted; rings are 0 by construction (DeloopTrench
+// ships a subset of a tree). Same units and same coefficients as the
+// ledger, so "sweep 2 scored better" means the same thing here as there.
+fn SweepScore(ref d: Design) -> i64 {
+  var dist_count: array(i32, 6);
+  var dist_m: array(i64, 6);
+  var feed_count: array(i32, 6);
+  var feed_m: array(i64, 6);
+  var i: i32 = 0;
+  while (i < 6) {
+    dist_count[i] = 0;
+    dist_m[i] = 0;
+    feed_count[i] = 0;
+    feed_m[i] = 0;
+    ++i;
+  }
+  var score: i64 = 0;
+  var e: i32 = 0;
+  while (e < d.edge_count) {
+    if (d.dist_fibers[e] > 0) {
+      let demand: i32 = CeilDiv(d.dist_fibers[e] * (100 + SparePct()), 100);
+      AddCablesForDemand(demand, d.edge_len[e], ref dist_count, ref dist_m);
+    }
+    if (d.feeder_fibers[e] > 0) {
+      AddCablesForDemand(d.feeder_fibers[e], d.edge_len[e],
+                         ref feed_count, ref feed_m);
+    }
+    if (d.trench_used[e]) {
+      score += (d.edge_len[e] as i64) * TrenchCostPerM(d.edge_surface[e]);
+    }
+    ++e;
+  }
+  i = 0;
+  while (i < 6) {
+    score += (dist_m[i] + feed_m[i]) * CableCostPerM(i);
+    ++i;
+  }
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    score += (d.prem_drop_len[p] as i64) * DropCablePerM();
+    ++p;
+  }
+  var viol: i64 = 0;
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    let used: i32 = d.term_ports_used[t];
+    if (used > 0) {
+      score += TerminalCost(d.term_size_idx[t]);
+      if (used < 4 or used > 12) {
+        viol += 1;
+      }
+    }
+    ++t;
+  }
+  score += 50000 * (DropStreetCrossings(ref d) as i64);
+  score += 20000 * (DropDropCrossings(ref d) as i64);
+  score += 100000 * viol;
+  score += 1000000 * (SweepQaErrors(ref d) as i64);
+  return score;
+}
+
+// The measured trench price and what the second sweep did with it. Placed
+// before the qa block on purpose: the scorer counts qa errors by scanning
+// report lines between "qa:" and "qa verdict:".
+fn PrintSweeps(ref d: Design) {
+  Core.PrintStr("sweeps:\n");
+  Core.PrintStr("  trench_price_cents: min=");
+  PrintInt(d.pi_min);
+  Core.PrintStr(" median=");
+  PrintInt(d.pi_med);
+  Core.PrintStr(" max=");
+  PrintInt(d.pi_max);
+  Core.PrintStr(" nodes_over_50k=");
+  PrintInt(d.pi_nodes_over_50k);
+  NL();
+  Core.PrintStr("  trench_price_candidates: n=");
+  PrintInt(d.pi_cand_count);
+  Core.PrintStr(" median=");
+  PrintInt(d.pi_cand_med);
+  Core.PrintStr(" over_50k=");
+  PrintInt(d.pi_cand_over_50k);
+  NL();
+  Core.PrintStr("  priced_sweep_terminals: priced=");
+  PrintInt(d.pi_term_priced);
+  Core.PrintStr(" over_50k=");
+  PrintInt(d.pi_term_over_50k);
+  Core.PrintStr(" spur_cents=");
+  PrintI64(d.pi_term_sum);
+  NL();
+  Core.PrintStr("  sweep_score: unpriced=");
+  PrintI64(d.sweep_score_a);
+  Core.PrintStr(" priced=");
+  PrintI64(d.sweep_score_b);
+  Core.PrintStr(" kept=");
+  PrintInt(d.sweep_kept);
+  NL();
+}

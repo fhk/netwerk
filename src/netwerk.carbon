@@ -14,6 +14,7 @@ import library "model";
 import library "graph";
 import library "stages";
 import library "outputs";
+import library "pipeline";
 
 fn Run() -> i32 {
   var d: Design = Design.Make();
@@ -31,21 +32,13 @@ fn Run() -> i32 {
     return 2;
   }
 
-  SnapPremises(ref d);
-  Cluster(ref d);
-  RebalanceClusters(ref d);  // pack serving areas so cabinets run full
-  PlaceFdh(ref d);
-  RouteDistribution(ref d);  // packs terminals per serving area as it goes
-  MergeTerminals(ref d);     // scorer-priced dissolve + utilization repair
-  ProvisionSplitters(ref d);
-  SelectCo(ref d);
-  RouteFeeder(ref d);
-  DeloopTrench(ref d);       // acyclic used trench: re-route cables on the MSF
+  RunDesign(ref d);          // two sweeps, trench-priced; better one ships
 
   var total: i64 = Report(ref d);
   if (total <= 0) {
     return 2;
   }
+  PrintSweeps(ref d);
   let qa_errors: i32 = RunQa(ref d);
   if (qa_errors > 0) {
     return 1;
