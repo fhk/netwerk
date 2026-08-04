@@ -57,4 +57,15 @@ fn RunDesign(ref d: Design) {
     ResetForSweep(ref d);
     DesignSweep(ref d);
   }
+
+  // Stage 9b, on the design that ships. Priced 2-opt drop uncrossing
+  // (research.md 5.2) swaps the terminals of two crossing drops whenever
+  // the full scorer delta pays. It runs ONCE, after the sweep decision,
+  // for two reasons: it is a pure assignment repair, so re-deciding a
+  // sweep cannot benefit from it; and it is the only stage that rewrites
+  // prem_cluster, which the sweeps inherit and must not see move (the
+  // fallback re-run has to reproduce sweep 1 bit-for-bit). The sweep
+  // scores above are therefore pre-uncrossing on both sides — a fair
+  // comparison, just not the final number.
+  UncrossDrops(ref d);
 }

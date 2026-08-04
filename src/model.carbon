@@ -292,6 +292,17 @@ class Design {
   var node_pi: array(i32, 16384);
   var pi_bought: array(bool, 16384);
 
+  // --- priced 2-opt drop uncrossing (stage 9b, iter 009) ---
+  // Every drop-drop crossing is inter-terminal (ProperCross excludes shared
+  // endpoints), so the uncrossing pass reports what the ASSIGNMENT could not
+  // repair: how many crossings survive, and how many of those are pairs in
+  // different serving areas — the swaps v1 refuses for want of per-cluster
+  // fiber bookkeeping (backlog item 2).
+  var ux_swaps: i32;
+  var ux_rounds: i32;
+  var ux_residual: i32;
+  var ux_residual_xarea: i32;
+
   // --- two-sweep bookkeeping, reported under "sweeps:" ---
   var pi_min: i32;
   var pi_med: i32;

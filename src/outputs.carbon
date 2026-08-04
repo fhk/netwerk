@@ -953,4 +953,18 @@ fn PrintSweeps(ref d: Design) {
   Core.PrintStr(" kept=");
   PrintInt(d.sweep_kept);
   NL();
+  // What the 2-opt uncrossing pass did and what it could not reach. The
+  // residual split is the measurement that sizes the next piece of work:
+  // xarea pairs are the ones v1 refuses for want of per-cluster fiber
+  // bookkeeping (backlog item 2), the rest are priced-out or blocked by
+  // the 150 m drop rule.
+  Core.PrintStr("  uncross_2opt: swaps=");
+  PrintInt(d.ux_swaps);
+  Core.PrintStr(" scans=");
+  PrintInt(d.ux_rounds);
+  Core.PrintStr(" residual=");
+  PrintInt(d.ux_residual);
+  Core.PrintStr(" residual_xarea=");
+  PrintInt(d.ux_residual_xarea);
+  NL();
 }

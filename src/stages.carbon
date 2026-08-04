@@ -1487,6 +1487,256 @@ fn DeloopTrench(ref d: Design) {
 }
 
 // ---------------------------------------------------------------------------
+// Stage 9b — priced 2-opt drop uncrossing (iter 009)
+// ---------------------------------------------------------------------------
+
+// Two drops that share a terminal can never PROPERLY cross — they share an
+// endpoint, and ProperCross excludes endpoint touches — so every drop-drop
+// crossing in the design is inter-terminal, i.e. a property of the
+// premises -> terminal ASSIGNMENT alone and not of where the terminals
+// stand. The uncrossing lemma then says such a crossing is an artefact
+// rather than a geometric tax: if p1->t1 and p2->t2 properly cross, the
+// four points are in convex position with the two drops as the diagonals of
+// p1 p2 t1 t2, so routing through the crossing point and applying the
+// triangle inequality twice gives
+//     |p1 t2| + |p2 t1| < |p1 t1| + |p2 t2|
+// and the swapped pair are opposite SIDES of that quadrilateral, so they
+// cannot cross each other. Swapping keeps each terminal's port count, its
+// catalog size and its node, so hardware, the under-4 count, splitter and
+// fiber accounting and the exactly-95.0% terminal-port utilization floor
+// cannot move: this is the one repair pass that cannot spend budget
+// elsewhere (research.md 5.2, appendix A ranked item 4).
+//
+// What the lemma does NOT cover is priced: the shorter drop may cross a
+// street the longer one avoided (50000), and either new drop may cross a
+// THIRD drop (20000). So each candidate pays the full scorer delta and is
+// taken only when it is strictly negative. That objective is a non-negative
+// integer which strictly decreases on every accept, so the fixpoint loop
+// provably terminates; the scan runs in ascending premises id, so which
+// fixpoint it lands on is determined.
+
+// Applies the swap. Only the two drops move: the two premises exchange
+// terminals, and with them the serving area of the terminal they land on
+// (the invariant prem_cluster[p] == term_cluster[prem_terminal[p]] holds
+// everywhere in this file). The exchange is BALANCED and equal-unit, so
+// cluster_units, cluster_prems and every per-(cluster, node) fiber demand
+// come out exactly as they went in — which is why the pass can run after
+// the cable has already been sized.
+fn SwapDrops(ref d: Design, p1: i32, p2: i32) {
+  let t1: i32 = d.prem_terminal[p1];
+  let t2: i32 = d.prem_terminal[p2];
+  d.prem_terminal[p1] = t2;
+  d.prem_terminal[p2] = t1;
+  d.prem_cluster[p1] = d.term_cluster[t2];
+  d.prem_cluster[p2] = d.term_cluster[t1];
+  d.prem_drop_len[p1] = DistM(d.prem_x[p1], d.prem_y[p1],
+                              d.node_x[d.term_node[t2]],
+                              d.node_y[d.term_node[t2]]);
+  d.prem_drop_len[p2] = DistM(d.prem_x[p2], d.prem_y[p2],
+                              d.node_x[d.term_node[t1]],
+                              d.node_y[d.term_node[t1]]);
+}
+
+// Scorer delta in cents of swapping the terminals of p1 and p2; a positive
+// value rejects, and 1 is the sentinel for "infeasible" (150 m drop rule or
+// the optical route budget). Prices exactly the three terms a swap can
+// move — drop cable, the two re-routed drops' street crossings, and every
+// drop-drop pair containing p1 or p2 — and nothing else, because nothing
+// else CAN move.
+fn SwapDelta(ref d: Design, p1: i32, p2: i32) -> i64 {
+  let t1: i32 = d.prem_terminal[p1];
+  let t2: i32 = d.prem_terminal[p2];
+  let ax: i32 = d.prem_x[p1];
+  let ay: i32 = d.prem_y[p1];
+  let bx: i32 = d.prem_x[p2];
+  let by: i32 = d.prem_y[p2];
+  let n1x: i32 = d.node_x[d.term_node[t1]];
+  let n1y: i32 = d.node_y[d.term_node[t1]];
+  let n2x: i32 = d.node_x[d.term_node[t2]];
+  let n2y: i32 = d.node_y[d.term_node[t2]];
+  let l1: i32 = DistM(ax, ay, n2x, n2y);
+  let l2: i32 = DistM(bx, by, n1x, n1y);
+  if (l1 > MaxDropM() or l2 > MaxDropM()) {
+    return 1;
+  }
+  // Optical budget proxy, measured the way QA measures it: each premises
+  // inherits the feeder leg of the area its new terminal belongs to.
+  if (d.fdh_route_len[d.term_cluster[t2]] + d.term_path_len[t2] + l1 >
+          MaxRouteM() or
+      d.fdh_route_len[d.term_cluster[t1]] + d.term_path_len[t1] + l2 >
+          MaxRouteM()) {
+    return 1;
+  }
+
+  var delta: i64 = DropCablePerM() *
+      ((l1 + l2 - d.prem_drop_len[p1] - d.prem_drop_len[p2]) as i64);
+  delta += 50000 * ((CountDropCrossings(ref d, ax, ay, d.term_node[t2]) +
+                     CountDropCrossings(ref d, bx, by, d.term_node[t1]) -
+                     CountDropCrossings(ref d, ax, ay, d.term_node[t1]) -
+                     CountDropCrossings(ref d, bx, by, d.term_node[t2])) as i64);
+
+  // Drop-drop: the only pairs whose crossing status can change are the ones
+  // containing p1 or p2, so one scan over the other live drops settles all
+  // of them. Every one of the four segments lies inside the bounding box of
+  // the four endpoints, so that box is an exact prefilter.
+  var lox: i32 = ax;
+  var hix: i32 = ax;
+  var loy: i32 = ay;
+  var hiy: i32 = ay;
+  var cx: array(i32, 3);
+  var cy: array(i32, 3);
+  cx[0] = bx;   cy[0] = by;
+  cx[1] = n1x;  cy[1] = n1y;
+  cx[2] = n2x;  cy[2] = n2y;
+  var q: i32 = 0;
+  while (q < 3) {
+    if (cx[q] < lox) { lox = cx[q]; }
+    if (cx[q] > hix) { hix = cx[q]; }
+    if (cy[q] < loy) { loy = cy[q]; }
+    if (cy[q] > hiy) { hiy = cy[q]; }
+    ++q;
+  }
+  var dd: i32 = 0;
+  var k: i32 = 0;
+  while (k < d.prem_count) {
+    let tk: i32 = d.prem_terminal[k];
+    if (k != p1 and k != p2 and tk != -1) {
+      let kx: i32 = d.prem_x[k];
+      let ky: i32 = d.prem_y[k];
+      let mx: i32 = d.node_x[d.term_node[tk]];
+      let my: i32 = d.node_y[d.term_node[tk]];
+      var klox: i32 = kx;
+      var khix: i32 = kx;
+      if (mx < klox) { klox = mx; }
+      if (mx > khix) { khix = mx; }
+      var kloy: i32 = ky;
+      var khiy: i32 = ky;
+      if (my < kloy) { kloy = my; }
+      if (my > khiy) { khiy = my; }
+      if (khix >= lox and klox <= hix and khiy >= loy and kloy <= hiy) {
+        if (ProperCross(ax, ay, n2x, n2y, kx, ky, mx, my)) { dd += 1; }
+        if (ProperCross(bx, by, n1x, n1y, kx, ky, mx, my)) { dd += 1; }
+        if (ProperCross(ax, ay, n1x, n1y, kx, ky, mx, my)) { dd -= 1; }
+        if (ProperCross(bx, by, n2x, n2y, kx, ky, mx, my)) { dd -= 1; }
+      }
+    }
+    ++k;
+  }
+  // The candidate pair itself: it crosses today (that is why it is a
+  // candidate) and the swapped pair are opposite sides of the convex
+  // quadrilateral, so this is -1 in every real case. Tested, not assumed.
+  if (ProperCross(ax, ay, n2x, n2y, bx, by, n1x, n1y)) { dd += 1; }
+  dd -= 1;
+  delta += 20000 * (dd as i64);
+  return delta;
+}
+
+// Runs the 2-opt uncrossing to a fixpoint (bounded at 8 scans). A swap is
+// attempted for every crossing pair with EQUAL UNIT COUNTS; unequal units
+// would shift fiber demand between terminal nodes after DeloopTrench has
+// already sized the cable, and are refused.
+//
+// research.md 5.2 asks for a same-serving-area restriction in v1, on the
+// grounds that a cross-area swap needs the per-cluster fiber bookkeeping of
+// backlog item 2. Measured: with that restriction the district clears only
+// 55 of 692 crossings and 579 of the residual 637 are cross-area pairs — so
+// the restriction, not the geometry, was the binding constraint. It is also
+// unnecessary, and for a reason specific to SWAPS: item 2's bookkeeping
+// problem belongs to a one-way move (dissolve), which changes cluster_units
+// and every aggregate derived from it. A swap is an EXCHANGE — area A loses
+// p1's units and gains p2's, which are equal — so cluster_units,
+// cluster_prems, cluster_take_units, the cabinet size and each cluster's
+// per-node fiber demand are all invariant. The pass therefore runs
+// unrestricted, and residual_xarea drops to whatever geometry really costs.
+//
+// The last scan accepts nothing, so its counts are the residual, split into
+// cross-area pairs and the rest (priced out, or blocked by the 150 m rule
+// or the optical budget).
+fn UncrossDrops(ref d: Design) {
+  d.ux_swaps = 0;
+  d.ux_rounds = 0;
+  d.ux_residual = 0;
+  d.ux_residual_xarea = 0;
+  var changed: bool = true;
+  while (changed and d.ux_rounds < 8) {
+    changed = false;
+    d.ux_rounds += 1;
+    d.ux_residual = 0;
+    d.ux_residual_xarea = 0;
+    var i: i32 = 0;
+    while (i < d.prem_count) {
+      var ti: i32 = d.prem_terminal[i];
+      if (ti == -1) {
+        ++i;
+        continue;
+      }
+      let px: i32 = d.prem_x[i];
+      let py: i32 = d.prem_y[i];
+      var qx: i32 = d.node_x[d.term_node[ti]];
+      var qy: i32 = d.node_y[d.term_node[ti]];
+      var lox: i32 = px;
+      var hix: i32 = px;
+      var loy: i32 = py;
+      var hiy: i32 = py;
+      if (qx < lox) { lox = qx; }
+      if (qx > hix) { hix = qx; }
+      if (qy < loy) { loy = qy; }
+      if (qy > hiy) { hiy = qy; }
+      var j: i32 = i + 1;
+      while (j < d.prem_count) {
+        let tj: i32 = d.prem_terminal[j];
+        if (tj != -1 and tj != ti) {
+          let rx: i32 = d.prem_x[j];
+          let ry: i32 = d.prem_y[j];
+          let sx: i32 = d.node_x[d.term_node[tj]];
+          let sy: i32 = d.node_y[d.term_node[tj]];
+          var jlox: i32 = rx;
+          var jhix: i32 = rx;
+          if (sx < jlox) { jlox = sx; }
+          if (sx > jhix) { jhix = sx; }
+          var jloy: i32 = ry;
+          var jhiy: i32 = ry;
+          if (sy < jloy) { jloy = sy; }
+          if (sy > jhiy) { jhiy = sy; }
+          if (jhix >= lox and jlox <= hix and jhiy >= loy and jloy <= hiy and
+              ProperCross(px, py, qx, qy, rx, ry, sx, sy)) {
+            let xarea: bool = d.prem_cluster[i] != d.prem_cluster[j];
+            d.ux_residual += 1;
+            if (xarea) {
+              d.ux_residual_xarea += 1;
+            }
+            if (d.prem_units[i] == d.prem_units[j] and
+                SwapDelta(ref d, i, j) < 0) {
+              SwapDrops(ref d, i, j);
+              d.ux_swaps += 1;
+              d.ux_residual -= 1;
+              if (xarea) {
+                d.ux_residual_xarea -= 1;
+              }
+              changed = true;
+              // Drop i moved: re-read it for the rest of this scan.
+              ti = d.prem_terminal[i];
+              qx = d.node_x[d.term_node[ti]];
+              qy = d.node_y[d.term_node[ti]];
+              lox = px;
+              hix = px;
+              loy = py;
+              hiy = py;
+              if (qx < lox) { lox = qx; }
+              if (qx > hix) { hix = qx; }
+              if (qy < loy) { loy = qy; }
+              if (qy > hiy) { hiy = qy; }
+            }
+          }
+        }
+        ++j;
+      }
+      ++i;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Stage 10 — connected-facility-location price feedback (iter 008)
 // ---------------------------------------------------------------------------
 

@@ -37,7 +37,7 @@ bom:
   feeder_cable_96f qty=2064 m unit=$3.40 ext=$7017.60
   feeder_cable_144f qty=326 m unit=$4.70 ext=$1532.20
   feeder_cable_288f qty=126 m unit=$7.80 ext=$982.80
-  drop_cable qty=194816 m unit=$1.50 ext=$292224.00
+  drop_cable qty=184919 m unit=$1.50 ext=$277378.50
   drop_assembly qty=6719 ea unit=$120.00 ext=$806280.00
   fdh_cabinet_288 qty=1 ea unit=$1800.00 ext=$1800.00
   fdh_cabinet_432 qty=15 ea unit=$2500.00 ext=$37500.00
@@ -56,14 +56,15 @@ bom:
   olt_card_16p qty=10 ea unit=$1200.00 ext=$12000.00
   olt_port_optics qty=172 ea unit=$85.00 ext=$14620.00
 cost:
-  total_capex=$7936909.60
-  per_unit_passed=$1181.26
+  total_capex=$7922064.10
+  per_unit_passed=$1179.05
   trench_m=122256 cable_route_m=147261 sharing_x100=120
 sweeps:
   trench_price_cents: min=0 median=81000 max=1669500 nodes_over_50k=9342
   trench_price_candidates: n=15668 median=81000 over_50k=9342
   priced_sweep_terminals: priced=0 over_50k=0 spur_cents=0
   sweep_score: unpriced=883852190 priced=878866960 kept=2
+  uncross_2opt: swaps=388 scans=4 residual=147 residual_xarea=90
 qa:
   premises_served: ok
   drop_length: ok

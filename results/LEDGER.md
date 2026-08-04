@@ -13,3 +13,4 @@ Composite score (lower is better) summed over all scenarios and the parcel distr
 | 006 | growth-aware priced merge: targets may step up the catalog to absorb under-4 strays | 1015618980 | 824938980 | 2238 | 684 | 511 | 0 | 14 |
 | 007 | catalog granularity: small FDH pedestals, 1-2 port OLT cards, 1:2 splitter, minimal-cover splitter bank | 1006158940 | 825478940 | 2238 | 684 | 511 | 0 | 4 |
 | 008 | ConFL trench price pi_v inside the terminal-packing move cost (two-sweep) | 1001173710 | 822033710 | 2252 | 692 | 487 | 0 | 4 |
+| 009 | priced 2-opt drop uncrossing: load-preserving swaps, cross-area allowed | 977539160 | 820549160 | 2027 | 147 | 487 | 0 | 4 |
