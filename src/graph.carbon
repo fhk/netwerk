@@ -68,8 +68,8 @@ fn ProperCross(px: i32, py: i32, qx: i32, qy: i32,
 // Grid coordinate of a world coordinate, clamped into the 128-cell axis.
 // Clamping is monotone, so intersecting bounding boxes always land in
 // intersecting cell ranges — the grid stays a true superset prefilter.
-fn GridCell(v: i32, origin: i32) -> i32 {
-  var c: i32 = (v - origin) / 128;
+fn GridCell(v: i32, origin: i32, cell: i32) -> i32 {
+  var c: i32 = (v - origin) / cell;
   if (c < 0) { c = 0; }
   if (c > 127) { c = 127; }
   return c;
@@ -85,6 +85,22 @@ fn BuildEdgeGrid(ref d: Design) {
     if (d.node_y[n] < miny) { miny = d.node_y[n]; }
     ++n;
   }
+  var maxx: i32 = d.node_x[0];
+  var maxy: i32 = d.node_y[0];
+  var q: i32 = 1;
+  while (q < d.node_count) {
+    if (d.node_x[q] > maxx) { maxx = d.node_x[q]; }
+    if (d.node_y[q] > maxy) { maxy = d.node_y[q]; }
+    ++q;
+  }
+  // 128 columns must span the data; keep the historical 128 m floor so
+  // every existing fixture indexes exactly as before.
+  var cell: i32 = 128;
+  let spanx: i32 = (maxx - minx) / 128 + 1;
+  let spany: i32 = (maxy - miny) / 128 + 1;
+  if (spanx > cell) { cell = spanx; }
+  if (spany > cell) { cell = spany; }
+  d.eg_cell = cell;
   d.eg_minx = minx;
   d.eg_miny = miny;
   var c: i32 = 0;
@@ -97,17 +113,17 @@ fn BuildEdgeGrid(ref d: Design) {
   var e: i32 = 0;
   while (e < d.edge_count) {
     d.eg_stamp[e] = 0;
-    var cx0: i32 = GridCell(d.node_x[d.edge_from[e]], minx);
-    var cx1: i32 = GridCell(d.node_x[d.edge_to[e]], minx);
-    var cy0: i32 = GridCell(d.node_y[d.edge_from[e]], miny);
-    var cy1: i32 = GridCell(d.node_y[d.edge_to[e]], miny);
+    var cx0: i32 = GridCell(d.node_x[d.edge_from[e]], minx, d.eg_cell);
+    var cx1: i32 = GridCell(d.node_x[d.edge_to[e]], minx, d.eg_cell);
+    var cy0: i32 = GridCell(d.node_y[d.edge_from[e]], miny, d.eg_cell);
+    var cy1: i32 = GridCell(d.node_y[d.edge_to[e]], miny, d.eg_cell);
     if (cx1 < cx0) { let tx: i32 = cx0; cx0 = cx1; cx1 = tx; }
     if (cy1 < cy0) { let ty: i32 = cy0; cy0 = cy1; cy1 = ty; }
     var cy: i32 = cy0;
     while (cy <= cy1) {
       var cx: i32 = cx0;
       while (cx <= cx1) {
-        if (d.eg_count < 131072) {
+        if (d.eg_count < 2097152) {
           d.eg_edge[d.eg_count] = e;
           d.eg_next[d.eg_count] = d.eg_head[cy * 128 + cx];
           d.eg_head[cy * 128 + cx] = d.eg_count;
@@ -128,10 +144,10 @@ fn CountDropCrossings(ref d: Design, px: i32, py: i32, tn: i32) -> i32 {
   let qx: i32 = d.node_x[tn];
   let qy: i32 = d.node_y[tn];
   ++d.eg_query;
-  var cx0: i32 = GridCell(px, d.eg_minx);
-  var cx1: i32 = GridCell(qx, d.eg_minx);
-  var cy0: i32 = GridCell(py, d.eg_miny);
-  var cy1: i32 = GridCell(qy, d.eg_miny);
+  var cx0: i32 = GridCell(px, d.eg_minx, d.eg_cell);
+  var cx1: i32 = GridCell(qx, d.eg_minx, d.eg_cell);
+  var cy0: i32 = GridCell(py, d.eg_miny, d.eg_cell);
+  var cy1: i32 = GridCell(qy, d.eg_miny, d.eg_cell);
   if (cx1 < cx0) { let tx: i32 = cx0; cx0 = cx1; cx1 = tx; }
   if (cy1 < cy0) { let ty: i32 = cy0; cy0 = cy1; cy1 = ty; }
   var cnt: i32 = 0;
@@ -162,6 +178,76 @@ fn CountDropCrossings(ref d: Design, px: i32, py: i32, tn: i32) -> i32 {
   return cnt;
 }
 
+// Indexes every node into the same 128x128 grid, for exact nearest-node
+// queries. SnapPremises used to scan all N nodes per premises, which is
+// 1.5e10 operations at city scale.
+fn BuildNodeGrid(ref d: Design) {
+  var c: i32 = 0;
+  while (c < 16384) {
+    d.ng_head[c] = -1;
+    ++c;
+  }
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    let cx: i32 = GridCell(d.node_x[n], d.eg_minx, d.eg_cell);
+    let cy: i32 = GridCell(d.node_y[n], d.eg_miny, d.eg_cell);
+    d.ng_next[n] = d.ng_head[cy * 128 + cx];
+    d.ng_head[cy * 128 + cx] = n;
+    ++n;
+  }
+}
+
+// Nearest node to (px,py) by squared distance, ties to the lowest node id —
+// identical to the brute-force scan it replaces. Searches the point's cell
+// then expanding rings, and only stops once the ring's guaranteed minimum
+// distance exceeds the best found, so the answer is exact.
+fn NearestNode(ref d: Design, px: i32, py: i32, ref out_sq: i64) -> i32 {
+  let cx: i32 = GridCell(px, d.eg_minx, d.eg_cell);
+  let cy: i32 = GridCell(py, d.eg_miny, d.eg_cell);
+  var best: i32 = -1;
+  var best_sq: i64 = 9223372036854775807;
+  var r: i32 = 0;
+  while (r < 256) {
+    // Ring r is only worth visiting while some node in it could beat the
+    // incumbent: everything in ring r is at least (r-1)*cell away.
+    if (best >= 0) {
+      let reach: i64 = ((r - 1) as i64) * (d.eg_cell as i64);
+      if (r > 0 and reach > 0 and reach * reach > best_sq) {
+        break;
+      }
+    }
+    var yy: i32 = cy - r;
+    while (yy <= cy + r) {
+      if (yy >= 0 and yy < 128) {
+        var xx: i32 = cx - r;
+        while (xx <= cx + r) {
+          // only the ring boundary, interior cells were done at smaller r
+          let on_ring: bool =
+              (yy == cy - r) or (yy == cy + r) or (xx == cx - r) or (xx == cx + r);
+          if (xx >= 0 and xx < 128 and on_ring) {
+            var it: i32 = d.ng_head[yy * 128 + xx];
+            while (it != -1) {
+              let dx: i64 = (px - d.node_x[it]) as i64;
+              let dy: i64 = (py - d.node_y[it]) as i64;
+              let sq: i64 = dx * dx + dy * dy;
+              if (sq < best_sq or (sq == best_sq and it < best)) {
+                best_sq = sq;
+                best = it;
+              }
+              it = d.ng_next[it];
+            }
+          }
+          ++xx;
+        }
+      }
+      ++yy;
+    }
+    ++r;
+  }
+  out_sq = best_sq;
+  return best;
+}
+
 // Computes edge lengths from node coordinates, builds adjacency, and
 // indexes the edge grid for drop-crossing queries.
 fn BuildGraph(ref d: Design) {
@@ -173,6 +259,7 @@ fn BuildGraph(ref d: Design) {
     ++e;
   }
   BuildEdgeGrid(ref d);
+  BuildNodeGrid(ref d);
 }
 
 // --- binary min-heap over d.dist, lazy insertion ---

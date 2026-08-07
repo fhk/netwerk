@@ -1,0 +1,8 @@
+{
+ "crs": "EPSG:4326",
+ "kx_m_per_deg": 99500.21278087619,
+ "ky_m_per_deg": 110540.0,
+ "lat0": 26.64254195278491,
+ "lon0": -81.99125579199105,
+ "projection": "equirectangular"
+}

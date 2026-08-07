@@ -162,11 +162,11 @@ fn OltPortCost() -> i64 { return 8500; }           // OLT PON optics share, $85
 // Capacities of the fixed-size working store.
 // ---------------------------------------------------------------------------
 
-fn MaxNodes() -> i32 { return 16384; }
-fn MaxEdges() -> i32 { return 49152; }
-fn MaxPremises() -> i32 { return 12288; }
-fn MaxClusters() -> i32 { return 32; }
-fn MaxTerminals() -> i32 { return 4096; }
+fn MaxNodes() -> i32 { return 98304; }
+fn MaxEdges() -> i32 { return 262144; }
+fn MaxPremises() -> i32 { return 131072; }
+fn MaxClusters() -> i32 { return 512; }
+fn MaxTerminals() -> i32 { return 65536; }
 
 // ---------------------------------------------------------------------------
 // The Design object: one instance is the unit of work handed through every
@@ -176,86 +176,48 @@ fn MaxTerminals() -> i32 { return 4096; }
 class Design {
   impl as Core.UnformedInit {}
 
-  fn Make() -> Design {
-    returned var d: Design;
-    d.node_count = 0;
-    d.edge_count = 0;
-    d.adj_count = 0;
-    d.prem_count = 0;
-    d.cluster_count = 0;
-    d.term_count = 0;
-    d.co_node = -1;
-    d.total_units = 0;
-    d.heap_size = 0;
-    d.assign_cost_seed = 0;
-    d.assign_cost_lloyd = 0;
-    d.assign_cost_exact = 0;
-    d.assign_cycles = 0;
-    d.assign_moved = 0;
-    d.assign_stop = 0;
-    var i: i32 = 0;
-    while (i < MaxNodes()) {
-      d.adj_head[i] = -1;
-      d.node_pi[i] = 0;       // sweep 1 prices trench at zero, as before
-      d.pi_bought[i] = false;
-      ++i;
-    }
-    var e: i32 = 0;
-    while (e < MaxEdges()) {
-      d.dist_fibers[e] = 0;
-      d.feeder_fibers[e] = 0;
-      d.trench_used[e] = false;
-      ++e;
-    }
-    var c: i32 = 0;
-    while (c < MaxClusters() * SplitterSizeCount()) {
-      d.fdh_split_by_size[c] = 0;
-      ++c;
-    }
-    return var;
-  }
 
   // --- road graph nodes ---
   var node_count: i32;
-  var node_x: array(i32, 16384);
-  var node_y: array(i32, 16384);
+  var node_x: array(i32, 98304);
+  var node_y: array(i32, 98304);
 
   // --- road graph edges (undirected) ---
   var edge_count: i32;
-  var edge_from: array(i32, 49152);
-  var edge_to: array(i32, 49152);
-  var edge_len: array(i32, 49152);
-  var edge_surface: array(i32, 49152);
+  var edge_from: array(i32, 262144);
+  var edge_to: array(i32, 262144);
+  var edge_len: array(i32, 262144);
+  var edge_surface: array(i32, 262144);
 
   // --- adjacency lists (two directed half-edges per edge) ---
   var adj_count: i32;
-  var adj_head: array(i32, 16384);
-  var adj_next: array(i32, 98304);
-  var adj_to: array(i32, 98304);
-  var adj_edge: array(i32, 98304);
+  var adj_head: array(i32, 98304);
+  var adj_next: array(i32, 524288);
+  var adj_to: array(i32, 524288);
+  var adj_edge: array(i32, 524288);
 
   // --- premises ---
   var prem_count: i32;
   var total_units: i32;
-  var prem_x: array(i32, 12288);
-  var prem_y: array(i32, 12288);
-  var prem_units: array(i32, 12288);
-  var prem_snap_node: array(i32, 12288);
-  var prem_drop_len: array(i32, 12288);
-  var prem_cluster: array(i32, 12288);
-  var prem_terminal: array(i32, 12288);
+  var prem_x: array(i32, 131072);
+  var prem_y: array(i32, 131072);
+  var prem_units: array(i32, 131072);
+  var prem_snap_node: array(i32, 131072);
+  var prem_drop_len: array(i32, 131072);
+  var prem_cluster: array(i32, 131072);
+  var prem_terminal: array(i32, 131072);
 
   // --- serving areas / FDH sites ---
   var cluster_count: i32;
-  var seed_node: array(i32, 32);
-  var cluster_units: array(i32, 32);
-  var cluster_prems: array(i32, 32);
-  var cluster_take_units: array(i32, 32);  // units provisioned at take rate
-  var fdh_node: array(i32, 32);
-  var fdh_splitters: array(i32, 32);       // total splitter count (all sizes)
-  var fdh_split_by_size: array(i32, 160);  // [cluster * 5 + size_idx]
-  var fdh_size_idx: array(i32, 32);        // chosen cabinet size per cluster
-  var fdh_route_len: array(i32, 32);       // feeder route meters CO -> FDH
+  var seed_node: array(i32, 512);
+  var cluster_units: array(i32, 512);
+  var cluster_prems: array(i32, 512);
+  var cluster_take_units: array(i32, 512);  // units provisioned at take rate
+  var fdh_node: array(i32, 512);
+  var fdh_splitters: array(i32, 512);       // total splitter count (all sizes)
+  var fdh_split_by_size: array(i32, 2560);  // [cluster * 5 + size_idx]
+  var fdh_size_idx: array(i32, 512);        // chosen cabinet size per cluster
+  var fdh_route_len: array(i32, 512);       // feeder route meters CO -> FDH
   // Graph distance premises <- each cluster seed, row-major [seed][premises].
   // Dead after stage 3b; stage 6 (PackTerminals) reuses it as the packing
   // pair table — up to 196608 (hi, lo) i32 pairs: hi = crossings * 65536 +
@@ -267,32 +229,32 @@ class Design {
   // component-A node list. Stage 9c (priced spur re-siting) runs after 9a
   // inside the same DeloopTrench call and takes everything above 49152 —
   // the RsXxxBase() accessors in stages.carbon are the map.
-  var seed_dist: array(i32, 393216);       // 32 x 12288
+  var seed_dist: array(i32, 67108864);     // 512 x 131072
 
   // --- access terminals ---
   var term_count: i32;
-  var term_node: array(i32, 4096);
-  var term_cluster: array(i32, 4096);
-  var term_ports_used: array(i32, 4096);
-  var term_size_idx: array(i32, 4096);     // catalog size chosen at close
-  var term_path_len: array(i32, 4096);     // tree route meters terminal -> FDH
+  var term_node: array(i32, 65536);
+  var term_cluster: array(i32, 65536);
+  var term_ports_used: array(i32, 65536);
+  var term_size_idx: array(i32, 65536);     // catalog size chosen at close
+  var term_path_len: array(i32, 65536);     // tree route meters terminal -> FDH
 
   // --- CO / OLT ---
   var co_node: i32;
 
   // --- per-edge cable/trench usage (design results) ---
-  var dist_fibers: array(i32, 49152);
-  var feeder_fibers: array(i32, 49152);
-  var trench_used: array(bool, 49152);
+  var dist_fibers: array(i32, 262144);
+  var feeder_fibers: array(i32, 262144);
+  var trench_used: array(bool, 262144);
   // Spanning-forest membership of the used trench (stage 9, DeloopTrench).
-  var forest_edge: array(bool, 49152);
+  var forest_edge: array(bool, 262144);
 
   // --- distribution-tree working state (reset per serving area) ---
-  var in_tree: array(bool, 16384);
-  var tree_parent_node: array(i32, 16384);  // toward the FDH
-  var tree_parent_edge: array(i32, 16384);
-  var node_path_m: array(i32, 16384);       // tree route meters node -> FDH
-  var node_units: array(i32, 16384);        // demand units snapped per node
+  var in_tree: array(bool, 98304);
+  var tree_parent_node: array(i32, 98304);  // toward the FDH
+  var tree_parent_edge: array(i32, 98304);
+  var node_path_m: array(i32, 98304);       // tree route meters node -> FDH
+  var node_units: array(i32, 98304);        // demand units snapped per node
 
   // --- connected-facility-location trench price (stage 6, iter 008) ---
   // node_pi[v] = marginal trench cents to bring the ROUTED trench to v,
@@ -301,8 +263,8 @@ class Design {
   // first sweep (which therefore reproduces the pre-iter-008 design).
   // pi_bought[v] = a terminal has already been sited at v this sweep, so
   // the spur to v is paid for and further moves there price it at zero.
-  var node_pi: array(i32, 16384);
-  var pi_bought: array(bool, 16384);
+  var node_pi: array(i32, 98304);
+  var pi_bought: array(bool, 98304);
 
   // --- priced 2-opt drop uncrossing (stage 9b, iter 009) ---
   // Every drop-drop crossing is inter-terminal (ProperCross excludes shared
@@ -322,12 +284,12 @@ class Design {
   // two components, so the reconnection keeps it a tree and rings stay 0.
   // Candidate lists live in the dead `seed_dist` scratch (see below); only
   // the per-node/per-edge state is worth stack space here.
-  var kp_req: array(bool, 16384);    // required-node marker, kept from phase 1
-  var kp_deg: array(i32, 16384);     // tree degree under forest_edge
-  var kp_comp: array(i32, 16384);    // stamped component tag: stamp * 4 + side
+  var kp_req: array(bool, 98304);    // required-node marker, kept from phase 1
+  var kp_deg: array(i32, 98304);     // tree degree under forest_edge
+  var kp_comp: array(i32, 98304);    // stamped component tag: stamp * 4 + side
   var kp_stamp: i32;                 // bumped per trial, so no O(n) comp reset
-  var kp_saved: array(bool, 49152);  // phase-1 tree, for the route-budget undo
-  var kp_edge: array(i32, 1024);     // edges of the key path under test
+  var kp_saved: array(bool, 262144);  // phase-1 tree, for the route-budget undo
+  var kp_edge: array(i32, 65536);     // edges of the key path under test
   var kp_len: i32;                   // ... and how many, with its cost
   var kp_cost: i64;
   var kp_rounds: i32;                // diagnostics, reported under "sweeps:"
@@ -354,7 +316,7 @@ class Design {
   var rs_span: array(i32, 256);      // cumulative spur meters retired
   var rs_cand_n: i32;
   var rs_order_n: i32;               // nodes in the CO-rooted BFS order
-  var rs_saved_node: array(i32, 4096);  // terminal sites, for the undo
+  var rs_saved_node: array(i32, 65536);  // terminal sites, for the undo
   var rs_rounds: i32;                // diagnostics, reported under "sweeps:"
   var rs_moves: i32;
   var rs_spurs: i32;                 // private-spur terminals, last round
@@ -389,21 +351,30 @@ class Design {
   // --- edge spatial grid (128 m cells, 128x128; drop-crossing prefilter) ---
   var eg_minx: i32;
   var eg_miny: i32;
+  // Grid cell size in metres. Fixed at 128 m while every fixture fit in a
+  // 16.4 km box; Cape Coral is 23.3 km tall, which clamped a third of the
+  // city into the last grid row. Now derived from the node extent so the
+  // 128x128 index always spans the data.
+  var eg_cell: i32;
+  // Node grid (same cells) for exact nearest-node snapping — the O(P*N)
+  // scan is 1.5e10 at city scale.
+  var ng_head: array(i32, 16384);
+  var ng_next: array(i32, 98304);
   var eg_count: i32;
   var eg_query: i32;
   var eg_head: array(i32, 16384);
-  var eg_next: array(i32, 131072);
-  var eg_edge: array(i32, 131072);
-  var eg_stamp: array(i32, 49152);
+  var eg_next: array(i32, 2097152);
+  var eg_edge: array(i32, 2097152);
+  var eg_stamp: array(i32, 262144);
 
   // --- Dijkstra working state (reused across stages) ---
-  var dist: array(i64, 16384);
-  var prev_node: array(i32, 16384);
-  var prev_edge: array(i32, 16384);
-  var visited: array(bool, 16384);
+  var dist: array(i64, 98304);
+  var prev_node: array(i32, 98304);
+  var prev_edge: array(i32, 98304);
+  var visited: array(bool, 98304);
   // Lazy-insertion binary heap: up to one entry per relaxation.
   var heap_size: i32;
-  var heap_node: array(i32, 131072);
+  var heap_node: array(i32, 1048576);
 }
 
 // ---------------------------------------------------------------------------
@@ -431,4 +402,44 @@ fn DistM(x1: i32, y1: i32, x2: i32, y2: i32) -> i32 {
 // Ceiling division for capacity math.
 fn CeilDiv(a: i32, b: i32) -> i32 {
   return (a + b - 1) / b;
+}
+
+// Initialises a Design in place. At full-city caps the object is ~300 MB
+// (seed_dist alone is 512 x 131072 i32), far past any stack, so callers
+// hold it as a file-scope global and initialise it through this.
+fn InitDesign(ref d: Design) {
+    d.node_count = 0;
+    d.edge_count = 0;
+    d.adj_count = 0;
+    d.prem_count = 0;
+    d.cluster_count = 0;
+    d.term_count = 0;
+    d.co_node = -1;
+    d.total_units = 0;
+    d.heap_size = 0;
+    d.assign_cost_seed = 0;
+    d.assign_cost_lloyd = 0;
+    d.assign_cost_exact = 0;
+    d.assign_cycles = 0;
+    d.assign_moved = 0;
+    d.assign_stop = 0;
+    var i: i32 = 0;
+    while (i < MaxNodes()) {
+      d.adj_head[i] = -1;
+      d.node_pi[i] = 0;       // sweep 1 prices trench at zero, as before
+      d.pi_bought[i] = false;
+      ++i;
+    }
+    var e: i32 = 0;
+    while (e < MaxEdges()) {
+      d.dist_fibers[e] = 0;
+      d.feeder_fibers[e] = 0;
+      d.trench_used[e] = false;
+      ++e;
+    }
+    var c: i32 = 0;
+    while (c < MaxClusters() * SplitterSizeCount()) {
+      d.fdh_split_by_size[c] = 0;
+      ++c;
+    }
 }

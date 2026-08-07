@@ -166,19 +166,9 @@ fn ValidateConnectivity(ref d: Design) -> i32 {
 fn SnapPremises(ref d: Design) {
   var p: i32 = 0;
   while (p < d.prem_count) {
-    var best_node: i32 = 0;
-    var best_sq: i64 = 9223372036854775807;
-    var n: i32 = 0;
-    while (n < d.node_count) {
-      let dx: i64 = (d.prem_x[p] - d.node_x[n]) as i64;
-      let dy: i64 = (d.prem_y[p] - d.node_y[n]) as i64;
-      let sq: i64 = dx * dx + dy * dy;
-      if (sq < best_sq) {
-        best_sq = sq;
-        best_node = n;
-      }
-      ++n;
-    }
+    var best_sq: i64 = 0;
+    let best_node: i32 = NearestNode(ref d, d.prem_x[p], d.prem_y[p],
+                                     ref best_sq);
     d.prem_snap_node[p] = best_node;
     d.prem_drop_len[p] = ISqrt(best_sq);
     ++p;
@@ -214,7 +204,7 @@ fn AssignPremises(ref d: Design) {
         var best_d: i32 = 2147483647;
         var c: i32 = 0;
         while (c < k) {
-          let dd: i32 = d.seed_dist[c * 12288 + p2];
+          let dd: i32 = d.seed_dist[c * 131072 + p2];
           let has_room: bool =
               d.cluster_units[c] + d.prem_units[p2] <= MaxUnitsPerFdh();
           if (has_room and dd < best_d) {
@@ -229,7 +219,7 @@ fn AssignPremises(ref d: Design) {
           var c2: i32 = 0;
           var best_d2: i32 = 2147483647;
           while (c2 < k) {
-            let dd2: i32 = d.seed_dist[c2 * 12288 + p2];
+            let dd2: i32 = d.seed_dist[c2 * 131072 + p2];
             if (dd2 < best_d2) {
               best_d2 = dd2;
               assigned = c2;
@@ -291,7 +281,7 @@ fn Cluster(ref d: Design) {
     DijkstraFrom(ref d, d.seed_node[s], ModeMeters());
     var p: i32 = 0;
     while (p < d.prem_count) {
-      d.seed_dist[s * 12288 + p] = d.dist[d.prem_snap_node[p]] as i32;
+      d.seed_dist[s * 131072 + p] = d.dist[d.prem_snap_node[p]] as i32;
       ++p;
     }
     ++s;
@@ -344,7 +334,7 @@ fn RebalanceClusters(ref d: Design) {
     while (p < d.prem_count) {
       if (d.prem_cluster[p] == donor and
           d.cluster_units[recv] + d.prem_units[p] <= MaxUnitsPerFdh()) {
-        let dd: i32 = d.seed_dist[recv * 12288 + p];
+        let dd: i32 = d.seed_dist[recv * 131072 + p];
         if (dd < best_d) {
           best_d = dd;
           best_p = p;
@@ -464,7 +454,7 @@ fn AssignCost(ref d: Design) -> i64 {
   while (p < d.prem_count) {
     let c: i32 = d.prem_cluster[p];
     if (c >= 0) {
-      total += (d.seed_dist[c * 12288 + p] as i64) * (d.prem_units[p] as i64);
+      total += (d.seed_dist[c * 131072 + p] as i64) * (d.prem_units[p] as i64);
     }
     ++p;
   }
@@ -477,7 +467,7 @@ fn ReassignToFdh(ref d: Design) {
     DijkstraFrom(ref d, d.fdh_node[c], ModeMeters());
     var p: i32 = 0;
     while (p < d.prem_count) {
-      d.seed_dist[c * 12288 + p] = d.dist[d.prem_snap_node[p]] as i32;
+      d.seed_dist[c * 131072 + p] = d.dist[d.prem_snap_node[p]] as i32;
       ++p;
     }
     ++c;
@@ -528,13 +518,13 @@ fn TransportRepair(ref d: Design) {
   let inf: i64 = 4611686018427387904;   // half i64 max: safe to add to
   d.assign_stop = 1;                    // downgraded on every clean exit
 
-  var w: array(i64, 1089);      // 33 x 33 condensed arc cost
-  var arg: array(i32, 1089);    // the premises each arc would move
-  var bfd: array(i64, 33);
-  var bfp: array(i32, 33);
-  var cyc: array(i32, 34);
-  var dl: array(i32, 33);       // per-area unit delta of the pending cycle
-  var dp: array(i32, 33);       // per-area premises delta
+  var w: array(i64, 263169);      // 513 x 513 condensed arc cost
+  var arg: array(i32, 263169);    // the premises each arc would move
+  var bfd: array(i64, 513);
+  var bfp: array(i32, 513);
+  var cyc: array(i32, 514);
+  var dl: array(i32, 513);       // per-area unit delta of the pending cycle
+  var dp: array(i32, 513);       // per-area premises delta
 
   var guard: i32 = 0;
   while (guard < 4096) {
@@ -545,8 +535,8 @@ fn TransportRepair(ref d: Design) {
     while (u < vn) {
       var v: i32 = 0;
       while (v < vn) {
-        w[u * 33 + v] = inf;
-        arg[u * 33 + v] = -1;
+        w[u * 513 + v] = inf;
+        arg[u * 513 + v] = -1;
         ++v;
       }
       ++u;
@@ -556,13 +546,13 @@ fn TransportRepair(ref d: Design) {
       let j: i32 = d.prem_cluster[p];
       if (j >= 0) {
         let up: i64 = d.prem_units[p] as i64;
-        let dj: i64 = d.seed_dist[j * 12288 + p] as i64;
+        let dj: i64 = d.seed_dist[j * 131072 + p] as i64;
         var t: i32 = 0;
         while (t < k) {
           if (t != j) {
             let delta: i64 =
-                up * ((d.seed_dist[t * 12288 + p] as i64) - dj);
-            let idx: i32 = j * 33 + t;
+                up * ((d.seed_dist[t * 131072 + p] as i64) - dj);
+            let idx: i32 = j * 513 + t;
             // Ties -> lowest premises id, so the cycle is reproducible.
             if (delta < w[idx]) {
               w[idx] = delta;
@@ -577,10 +567,10 @@ fn TransportRepair(ref d: Design) {
     var j2: i32 = 0;
     while (j2 < k) {
       if (d.cluster_units[j2] < cap) {
-        w[j2 * 33 + slack] = 0;     // j2 can absorb a unit
+        w[j2 * 513 + slack] = 0;     // j2 can absorb a unit
       }
       if (d.cluster_prems[j2] > 1) {
-        w[slack * 33 + j2] = 0;     // j2 can release one and stay non-empty
+        w[slack * 513 + j2] = 0;     // j2 can release one and stay non-empty
       }
       ++j2;
     }
@@ -602,7 +592,7 @@ fn TransportRepair(ref d: Design) {
       while (uu < vn) {
         var vv: i32 = 0;
         while (vv < vn) {
-          let wt: i64 = w[uu * 33 + vv];
+          let wt: i64 = w[uu * 513 + vv];
           if (wt < inf and bfd[uu] + wt < bfd[vv]) {
             bfd[vv] = bfd[uu] + wt;
             bfp[vv] = uu;
@@ -673,14 +663,14 @@ fn TransportRepair(ref d: Design) {
         from = cyc[a + 1];
       }
       let to: i32 = cyc[a];
-      let wt2: i64 = w[from * 33 + to];
+      let wt2: i64 = w[from * 513 + to];
       if (wt2 >= inf) {
         broken = true;
         break;
       }
       gain += wt2;
       if (from != slack and to != slack) {
-        let mp: i32 = arg[from * 33 + to];
+        let mp: i32 = arg[from * 513 + to];
         if (mp < 0) {
           broken = true;
           break;
@@ -721,7 +711,7 @@ fn TransportRepair(ref d: Design) {
       }
       let to2: i32 = cyc[a];
       if (from2 != slack and to2 != slack) {
-        d.prem_cluster[arg[from2 * 33 + to2]] = to2;
+        d.prem_cluster[arg[from2 * 513 + to2]] = to2;
       }
       ++a;
     }
@@ -846,15 +836,15 @@ fn PackTerminals(ref d: Design, c: i32) {
   // 512-member cap bounds the table at 196608 pairs, exactly seed_dist's
   // capacity). Pass 1 counts, pass 2 fills — identical scan order and cap
   // logic, so both passes see the same pairs.
-  var cnt: array(i32, 16384);
+  var cnt: array(i32, 98304);
   var ci: i32 = 0;
   while (ci < d.node_count) {
     cnt[ci] = 0;
     ++ci;
   }
   var pass: i32 = 0;
-  var off: array(i32, 16385);
-  var fill: array(i32, 16384);
+  var off: array(i32, 98305);
+  var fill: array(i32, 98304);
   while (pass < 2) {
     var mi: i32 = 0;
     while (mi < mcount) {
@@ -928,13 +918,13 @@ fn PackTerminals(ref d: Design, c: i32) {
   // term_at[node] = the attachable terminal at that node (the newest one
   // placed there this cluster). dead[node] = segment empty or fully
   // assigned; members never become available again, so dead stays dead.
-  var term_at: array(i32, 16384);
+  var term_at: array(i32, 98304);
   var ta: i32 = 0;
   while (ta < d.node_count) {
     term_at[ta] = -1;
     ++ta;
   }
-  var dead: array(bool, 16384);
+  var dead: array(bool, 98304);
   var di: i32 = 0;
   while (di < d.node_count) {
     dead[di] = off[di + 1] == off[di];
@@ -1243,8 +1233,8 @@ fn TryDissolve(ref d: Design, t: i32, force: bool) -> bool {
   }
   // Pricing scan against scratch copies of every terminal's fill and
   // size (both evolve as members are assigned).
-  var scratch: array(i32, 4096);
-  var ssize: array(i32, 4096);
+  var scratch: array(i32, 65536);
+  var ssize: array(i32, 65536);
   var u: i32 = 0;
   while (u < d.term_count) {
     scratch[u] = d.term_ports_used[u];
@@ -1528,7 +1518,7 @@ fn SelectCo(ref d: Design) {
 // sharing-aware cost mode — trench opened by distribution or an earlier
 // feeder is discounted, so feeders bundle onto shared routes naturally.
 fn RouteFeeder(ref d: Design) {
-  var routed: array(bool, 32);
+  var routed: array(bool, 512);
   var c: i32 = 0;
   while (c < d.cluster_count) {
     routed[c] = false;
@@ -2091,8 +2081,8 @@ fn RsBuildPremGrid(ref d: Design) {
   }
   var p: i32 = 0;
   while (p < d.prem_count) {
-    let cell: i32 = GridCell(d.prem_y[p], d.eg_miny) * 128 +
-                    GridCell(d.prem_x[p], d.eg_minx);
+    let cell: i32 = GridCell(d.prem_y[p], d.eg_miny, d.eg_cell) * 128 +
+                    GridCell(d.prem_x[p], d.eg_minx, d.eg_cell);
     d.seed_dist[RsPgNext() + p] = d.seed_dist[RsPgHead() + cell];
     d.seed_dist[RsPgHead() + cell] = p;
     ++p;
@@ -2279,10 +2269,10 @@ fn RsDropDropDelta(ref d: Design, t: i32, px: i32, py: i32,
   if (cx > hix) { hix = cx; }
   if (cy < loy) { loy = cy; }
   if (cy > hiy) { hiy = cy; }
-  let gx0: i32 = GridCell(lox - MaxDropM(), d.eg_minx);
-  let gx1: i32 = GridCell(hix + MaxDropM(), d.eg_minx);
-  let gy0: i32 = GridCell(loy - MaxDropM(), d.eg_miny);
-  let gy1: i32 = GridCell(hiy + MaxDropM(), d.eg_miny);
+  let gx0: i32 = GridCell(lox - MaxDropM(), d.eg_minx, d.eg_cell);
+  let gx1: i32 = GridCell(hix + MaxDropM(), d.eg_minx, d.eg_cell);
+  let gy0: i32 = GridCell(loy - MaxDropM(), d.eg_miny, d.eg_cell);
+  let gy1: i32 = GridCell(hiy + MaxDropM(), d.eg_miny, d.eg_cell);
   var dd: i32 = 0;
   var gy: i32 = gy0;
   while (gy <= gy1) {

@@ -16,8 +16,11 @@ import library "stages";
 import library "outputs";
 import library "pipeline";
 
+// The Design is ~300 MB at full-city caps — file scope (BSS), not stack.
+var d: Design;
+
 fn Run() -> i32 {
-  var d: Design = Design.Make();
+  InitDesign(ref d);
 
   if (not Ingest(ref d)) {
     return 2;
