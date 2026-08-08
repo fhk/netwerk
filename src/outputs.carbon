@@ -732,9 +732,16 @@ fn Report(ref d: Design) -> i64 {
 fn PrintGeometry(ref d: Design) {
   Core.PrintStr("GEOM 1\n");
 
-  Core.PrintStr("G co ");
-  PrintInt(d.co_node);
-  NL();
+  // One line per head-end, primary first. A reach-driven design opens
+  // several, and a layer that shows only the primary is a map of a network
+  // nobody is building.
+  var h: i32 = 0;
+  while (h < d.co_count) {
+    Core.PrintStr("G co ");
+    PrintInt(d.co_nodes[h]);
+    NL();
+    ++h;
+  }
 
   var c: i32 = 0;
   while (c < d.cluster_count) {

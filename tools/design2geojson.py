@@ -57,7 +57,7 @@ def read_interchange(path):
 
 
 def read_geom(path):
-    co = None
+    cos = []
     fdhs, terms, gprems, gedges = [], [], [], []
     with open(path) as f:
         header = f.readline().split()
@@ -73,7 +73,7 @@ def read_geom(path):
                 sys.exit("geom: unexpected line: " + line.strip())
             kind, vals = t[1], [int(v) for v in t[2:]]
             if kind == "co":
-                co = vals[0]
+                cos.append(vals[0])          # one line per head-end
             elif kind == "fdh":
                 fdhs.append(vals)
             elif kind == "term":
@@ -82,7 +82,7 @@ def read_geom(path):
                 gprems.append(vals)
             elif kind == "edge":
                 gedges.append(vals)
-    return co, fdhs, terms, gprems, gedges
+    return cos, fdhs, terms, gprems, gedges
 
 
 def main():
@@ -109,9 +109,10 @@ def main():
         return [round(lon0 + xy[0] / kx, 7), round(lat0 + xy[1] / ky, 7)]
 
     nodes, edges, prems = read_interchange(args.interchange)
-    co, fdhs, terms, gprems, gedges = read_geom(args.geom)
-    if co is None:
+    cos, fdhs, terms, gprems, gedges = read_geom(args.geom)
+    if not cos:
         sys.exit("geom: no CO record")
+    co = cos[0]
     term_by_id = {t[0]: t for t in terms}
 
     os.makedirs(args.out, exist_ok=True)
@@ -132,9 +133,12 @@ def main():
             f.write("\n")
         written[layer] = len(features)
 
-    # --- central office ---
-    write("central_office", [feature("Point", ll(nodes[co]),
-                                     {"node": co, "kind": "co_olt"})])
+    # --- head-ends: the primary CO first, then any reach-driven OLT sites ---
+    write("central_office", [
+        feature("Point", ll(nodes[n]),
+                {"node": n, "head_end": i,
+                 "kind": "co_olt" if i == 0 else "remote_olt"})
+        for i, n in enumerate(cos)])
 
     # --- cabinets (FDH) ---
     write("cabinets", [
