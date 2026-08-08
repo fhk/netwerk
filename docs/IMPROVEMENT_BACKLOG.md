@@ -476,3 +476,57 @@ scorer, that is how a campaign starts optimizing its own yardstick):
 
 Recommendation: (b) with dual-scoring on the switching iteration, plus
 (c) as a separate district-side optimization.
+
+## P0 — optical reach on Cape Coral (`route_length_budget`)
+
+The full-city canal design (106,925 premises, 248 serving areas) passes
+every QA check except the 20 km CO-to-ONT budget, which 48,393 premises
+(45.3%) blow. `tools/budget_report.py` splits the failure by leg:
+
+| leg | p50 | p90 | p99 | max |
+|---|---|---|---|---|
+| feeder | 17,293 | 26,013 | 29,665 | 30,633 |
+| distribution | 672 | 3,240 | 25,853 | 54,262 |
+| drop | 75 | 125 | 148 | 150 |
+
+Of the over-budget premises, **39,533 are over on feeder alone** and only
+1,907 on distribution alone; feeder is 89% of the over-budget route
+metres. Three separable causes, in order of size:
+
+1. ~~**Head-end siting gave up after 3 sites.**~~ DONE. `SelectCo` scored
+   each area by `dist(head-end, FDH) - slack`, slack being the budget
+   minus that area's worst distribution+drop tail. An area whose tail
+   *alone* exceeds the budget has negative slack, so its violation stayed
+   large even with a head-end on top of it — it won the farthest-first
+   argmax every round while 92 genuinely distant areas went untouched.
+   Slack is now clamped at zero, which makes the argmax track feeder
+   distance, the thing siting actually fixes. `tools/headend_sim.py`
+   replays the corrected greedy on the finished geometry: **42 head-ends,
+   residual 1,924 premises, $4.92M of site capital** (sites and chassis
+   are now costed — see below).
+
+2. **The min-trench tree snakes.** DeloopTrench builds one global Steiner
+   tree over the full road graph and cable follows its unique paths.
+   Against shortest paths from the FDH, the 8 worst areas run p50 115%,
+   p90 180%, **max 1948%** — a terminal 19x further by tree than by road.
+   Re-routing those tails on shortest paths clears **25 of the 35
+   tail-limited areas**. The move already exists in skeleton: stage 9a's
+   key-path exchange deletes a private chain, splits the tree and
+   reconnects it via `KpReconnect`, but reconnects on *cheapest trench*.
+   A reach-driven variant would pick the reconnection minimizing
+   `d_tree(FDH, x) + w(x,y) + d_tree(y, terminal)` instead, buying trench
+   to buy reach. Acyclicity is preserved by construction, so rings stay 0.
+
+3. **Ten areas are simply too big.** For those, the worst tail exceeds
+   20 km even routed on shortest paths — a 432-unit serving area on a
+   linear canal network can span more than the whole optical budget. No
+   tree fix or head-end reaches these; they need a radius cap in
+   clustering (max graph distance FDH -> premises), which trades more FDH
+   cabinets for reach and may pull `util_fdh_capacity` off the floor.
+
+Costing gaps closed alongside (1), because a reach fix that opens sites
+must pay for them: OLT cards were packed against the city-wide splitter
+total, so a site's remainder could borrow a port from an OLT 20 km away
+(now binned per head-end); and neither the chassis ($18,000) nor the
+head-end site itself ($120,000 — hut, power, batteries, HVAC, backhaul)
+appeared in the BOM at all.
