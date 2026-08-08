@@ -75,6 +75,7 @@ sweeps:
   uncross_2opt: swaps=9 scans=2 residual=10 residual_xarea=10
   keypath_exchange: rounds=1 moves=0 paths=791 tree_m=79100->79100 cents=359100000->359100000 rollback=0 route_max_m=12652
   spur_resite: rounds=2 moves=22 spurs_left=17 trench_m=-2200 cents=-9900000 gain=-4538250
+  reach_repair: rounds=0 moves=0 tried=0 over=0->0 trench_m=+0 rollback=0
 qa:
   premises_served: ok
   drop_length: ok

@@ -1121,4 +1121,22 @@ fn PrintSweeps(ref d: Design) {
   Core.PrintStr(" gain=");
   PrintI64(d.rs_gain);
   NL();
+
+  // Stage 9d. The only pass that BUYS trench, so trench_m is signed the
+  // other way from spur_resite's, and over= is the count it exists to move.
+  Core.PrintStr("  reach_repair: rounds=");
+  PrintInt(d.rr_rounds);
+  Core.PrintStr(" moves=");
+  PrintInt(d.rr_moves);
+  Core.PrintStr(" tried=");
+  PrintInt(d.rr_tried);
+  Core.PrintStr(" over=");
+  PrintInt(d.rr_over_before);
+  Core.PrintStr("->");
+  PrintInt(d.rr_over_after);
+  Core.PrintStr(" trench_m=+");
+  PrintInt(d.rr_trench_m);
+  Core.PrintStr(" rollback=");
+  PrintInt(d.rr_rollback);
+  NL();
 }

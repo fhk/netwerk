@@ -2742,6 +2742,484 @@ fn RouteOnTrenchTree(ref d: Design) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Stage 9d — reach repair on the trench tree
+//
+// Stages 9a-9c all pull the same direction: cheaper trench. On a compact
+// street grid that is free, because a min-cost tree path and a shortest road
+// path barely differ. On Cape Coral's canals it is not. The tree minimizes
+// total duct, so it will happily send a terminal down a finger and back up
+// to save a corridor, and measured against shortest paths from the FDH the
+// eight worst serving areas run p50 115%, p90 180% and max 1948% — a
+// terminal nineteen times further by tree than by road. That is what puts
+// 1,907 premises past the optical budget on the distribution leg alone.
+//
+// The move is stage 9a's, with the objective turned around. Delete the key
+// path hanging off a violating terminal, which splits the tree into A (the
+// terminal's side) and B (the FDH's side), then reconnect on the path that
+// minimizes the resulting ROUTE — d_tree(FDH, x) + metres(x..y) +
+// d_tree(y, terminal) — rather than the cheapest trench. It buys duct to
+// buy reach, which is the trade the budget asks for. Acyclicity is
+// unchanged: the spliced path's interior touches neither component, so
+// rings stay 0 and phases 2-4 need no change.
+//
+// Not every tail is reachable this way. Ten of Cape Coral's 35 tail-limited
+// areas are over budget even routed on shortest paths — a 432-unit serving
+// area that spans more than the whole optical budget is a clustering
+// problem, and no tree can fix it. Those are backlog P0(3).
+// ---------------------------------------------------------------------------
+
+// Node-indexed scratch, above stage 9c's regions.
+fn RrDbBase() -> i32 { return 1376256; }   // tree metres FDH -> node, in B
+fn RrDaBase() -> i32 { return 1474560; }   // tree metres terminal -> node, in A
+fn RrBlockBase() -> i32 { return 1572864; }  // per-target: pass that failed
+fn RrSpliceBase() -> i32 { return 1671168; } // edges the current splice added
+fn RrFeedBase() -> i32 { return 1769472; }   // per-cluster feeder allowance
+
+// Tree distance from `root` to every node of its component over forest
+// edges, into seed_dist[base + n]; -1 marks another component. Same walk as
+// ForestBfs but it writes to scratch instead of clobbering the parent
+// pointers phases 2-3 are about to read.
+fn RrTreeDist(ref d: Design, root: i32, slot: i32) {
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.seed_dist[slot + n] = -1;
+    ++n;
+  }
+  var head: i32 = 0;
+  var tail: i32 = 0;
+  d.seed_dist[slot + root] = 0;
+  d.heap_node[tail] = root;
+  ++tail;
+  while (head < tail) {
+    let u: i32 = d.heap_node[head];
+    ++head;
+    var a: i32 = d.adj_head[u];
+    while (a != -1) {
+      let e: i32 = d.adj_edge[a];
+      let v: i32 = d.adj_to[a];
+      if (d.forest_edge[e] and d.seed_dist[slot + v] == -1) {
+        d.seed_dist[slot + v] = d.seed_dist[slot + u] + d.edge_len[e];
+        d.heap_node[tail] = v;
+        ++tail;
+      }
+      a = d.adj_next[a];
+    }
+  }
+  d.heap_size = 0;
+}
+
+// Best reach-driven reconnection of A to B. Every A node enters the heap at
+// its tree distance to the target terminal, edges cost their full length
+// (cable runs on them, so every metre counts against the budget), and each
+// settled B node x scores dist[x] + d_B(FDH, x). Relaxation never re-enters
+// A and never leaves a B node, so the winning prev chain has its interior
+// outside both components — those nodes are off-tree, and splicing them in
+// cannot close a cycle. Returns the B node, with the new route in out_route.
+fn RrReconnect(ref d: Design, a_count: i32, ref out_route: i32) -> i32 {
+  let tag_a: i32 = d.kp_stamp * 4 + 1;
+  let tag_b: i32 = d.kp_stamp * 4 + 2;
+  DijkstraReset(ref d);
+  var i: i32 = 0;
+  while (i < a_count) {
+    let y: i32 = d.seed_dist[393216 + i];
+    let da: i32 = d.seed_dist[RrDaBase() + y];
+    if (da >= 0) {
+      d.dist[y] = da as i64;
+      d.prev_node[y] = -1;
+      d.prev_edge[y] = -1;
+      HeapPush(ref d, y);
+    }
+    ++i;
+  }
+  var best: i32 = -1;
+  var best_route: i64 = 9223372036854775807;
+  while (d.heap_size > 0) {
+    let u: i32 = HeapPop(ref d);
+    if (d.visited[u]) {
+      continue;
+    }
+    d.visited[u] = true;
+    if (d.dist[u] >= best_route) {
+      break;   // d_B >= 0, so nothing still queued can score better
+    }
+    if (d.kp_comp[u] == tag_b) {
+      let db: i32 = d.seed_dist[RrDbBase() + u];
+      if (db >= 0) {
+        let route: i64 = d.dist[u] + (db as i64);
+        if (route < best_route or (route == best_route and u < best)) {
+          best_route = route;
+          best = u;
+        }
+      }
+      continue;   // a path THROUGH B would double back onto the tree
+    }
+    var a: i32 = d.adj_head[u];
+    while (a != -1) {
+      let ce: i32 = d.adj_edge[a];
+      let v: i32 = d.adj_to[a];
+      if (d.kp_comp[v] != tag_a) {
+        let nd: i64 = d.dist[u] + (d.edge_len[ce] as i64);
+        if (nd < d.dist[v]) {
+          d.dist[v] = nd;
+          d.prev_node[v] = u;
+          d.prev_edge[v] = ce;
+          HeapPush(ref d, v);
+        }
+      }
+      a = d.adj_next[a];
+    }
+  }
+  if (best == -1) {
+    return -1;
+  }
+  out_route = best_route as i32;
+  return best;
+}
+
+// Splices the reconnection back in. The chain runs from the winning B node
+// to an A node, the mirror of KpApplyPath's direction.
+fn RrApplyPath(ref d: Design, stop: i32) -> i32 {
+  var meters: i32 = 0;
+  d.rr_splice_n = 0;
+  var w: i32 = stop;
+  while (d.prev_edge[w] != -1) {
+    let pe: i32 = d.prev_edge[w];
+    if (not d.forest_edge[pe]) {
+      d.forest_edge[pe] = true;
+      meters += d.edge_len[pe];
+      ++d.kp_deg[d.edge_from[pe]];
+      ++d.kp_deg[d.edge_to[pe]];
+      d.seed_dist[RrSpliceBase() + d.rr_splice_n] = pe;
+      ++d.rr_splice_n;
+    }
+    w = d.prev_node[w];
+  }
+  return meters;
+}
+
+// Removes a spliced path again. The accept test needs the tree re-walked
+// before it can judge, so every splice has to be undoable.
+fn RrUnsplice(ref d: Design) {
+  var i: i32 = 0;
+  while (i < d.rr_splice_n) {
+    let pe: i32 = d.seed_dist[RrSpliceBase() + i];
+    d.forest_edge[pe] = false;
+    --d.kp_deg[d.edge_from[pe]];
+    --d.kp_deg[d.edge_to[pe]];
+    ++i;
+  }
+  d.rr_splice_n = 0;
+}
+
+// The pass runs over two scopes. Distribution: root is an FDH, the targets
+// are its terminals, and they share one allowance. Feeder: root is a
+// head-end, the targets are the FDHs it feeds, and each carries its own
+// allowance because each area has its own distribution tail behind it.
+//
+// Feeder is the scope that matters most. SelectCo sites head-ends against
+// SHORTEST-PATH distance to each FDH, but the design routes feeder along the
+// global trench tree, which is longer -- so siting signs off on a network the
+// router then blows past. Repairing the feeder leg is what closes that gap.
+fn ScopeDist() -> i32 { return 0; }
+fn ScopeFeeder() -> i32 { return 1; }
+
+// Blocked-target marks: terminals by id, clusters above them in the same
+// region (term_count <= 65536 <= the region width).
+fn RrBlockAt(scope: i32, id: i32) -> i32 {
+  if (scope == ScopeFeeder()) {
+    return RrBlockBase() + 65536 + id;
+  }
+  return RrBlockBase() + id;
+}
+
+// Total metres by which a scope's targets exceed their allowance, over the
+// tree ForestBfs last walked. Summed excess rather than a count: it descends
+// smoothly where a count sits on a plateau, and a move that shortens four
+// targets without clearing any of them is still the right move.
+fn RrExcess(ref d: Design, scope: i32, sid: i32, budget: i32) -> i64 {
+  var total: i64 = 0;
+  if (scope == ScopeFeeder()) {
+    var c: i32 = 0;
+    while (c < d.cluster_count) {
+      if (d.cluster_co[c] == sid and not d.is_co[d.fdh_node[c]]) {
+        if (not d.in_tree[d.fdh_node[c]]) {
+          return 9223372036854775807;   // disconnected: never accept this
+        }
+        let over: i32 = d.node_path_m[d.fdh_node[c]] -
+                        d.seed_dist[RrFeedBase() + c];
+        if (over > 0) {
+          total += over as i64;
+        }
+      }
+      ++c;
+    }
+    return total;
+  }
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    if (d.term_cluster[t] == sid and d.term_ports_used[t] > 0) {
+      if (not d.in_tree[d.term_node[t]]) {
+        return 9223372036854775807;
+      }
+      let over: i32 = d.node_path_m[d.term_node[t]] - budget;
+      if (over > 0) {
+        total += over as i64;
+      }
+    }
+    ++t;
+  }
+  return total;
+}
+
+// The worst-violating target this pass has not already failed on, as a target
+// id (terminal or cluster), or -1. node_path_m must hold the root-rooted tree
+// distances.
+fn RrWorstTarget(ref d: Design, scope: i32, sid: i32, budget: i32,
+                 gen: i32) -> i32 {
+  var worst: i32 = -1;
+  var worst_over: i32 = 0;
+  var worst_node: i32 = 0;
+  if (scope == ScopeFeeder()) {
+    var c: i32 = 0;
+    while (c < d.cluster_count) {
+      if (d.cluster_co[c] == sid and not d.is_co[d.fdh_node[c]] and
+          d.in_tree[d.fdh_node[c]] and
+          d.seed_dist[RrBlockAt(scope, c)] != gen) {
+        let over: i32 = d.node_path_m[d.fdh_node[c]] -
+                        d.seed_dist[RrFeedBase() + c];
+        if (over > worst_over or
+            (over == worst_over and worst >= 0 and
+             d.fdh_node[c] < worst_node)) {
+          worst_over = over;
+          worst = c;
+          worst_node = d.fdh_node[c];
+        }
+      }
+      ++c;
+    }
+    return worst;
+  }
+  var t: i32 = 0;
+  while (t < d.term_count) {
+    if (d.term_cluster[t] == sid and d.term_ports_used[t] > 0 and
+        d.in_tree[d.term_node[t]] and
+        d.seed_dist[RrBlockAt(scope, t)] != gen) {
+      let over: i32 = d.node_path_m[d.term_node[t]] - budget;
+      if (over > worst_over or
+          (over == worst_over and worst >= 0 and
+           d.term_node[t] < worst_node)) {
+        worst_over = over;
+        worst = t;
+        worst_node = d.term_node[t];
+      }
+    }
+    ++t;
+  }
+  return worst;
+}
+
+// Road node a target id stands on.
+fn RrTargetNode(ref d: Design, scope: i32, id: i32) -> i32 {
+  if (scope == ScopeFeeder()) {
+    return d.fdh_node[id];
+  }
+  return d.term_node[id];
+}
+
+// One repair attempt on target `id`, climbing its route back to `root`.
+// Splitting at the target's own stub only ever moves that one target; when
+// the detour is a trunk that a dozen of them hang off, the split has to
+// happen at the trunk. So try each key path up the route in turn — the
+// subtree that gets re-attached grows with every step — and take the first
+// that lowers the scope's summed excess.
+//
+// Judged on the re-walked tree, not on the one target: pulling a target in
+// by a shortcut can push everything below it further out.
+fn RrRepair(ref d: Design, scope: i32, sid: i32, id: i32, root: i32,
+            budget: i32, before: i64) -> bool {
+  let fdh: i32 = root;
+  let target: i32 = RrTargetNode(ref d, scope, id);
+  var v: i32 = target;
+  var step: i32 = 0;
+  while (step < 8 and v != fdh) {
+    ++step;
+    let e0: i32 = d.tree_parent_edge[v];
+    if (e0 == -1 or not d.forest_edge[e0]) {
+      return false;
+    }
+    let pb: i32 = KpWalk(ref d, v, e0);
+    if (pb < 0) {
+      return false;
+    }
+    let plen: i32 = d.kp_len;
+    var pe_i: i32 = 0;
+    while (pe_i < plen) {
+      let pe: i32 = d.kp_edge[pe_i];
+      d.forest_edge[pe] = false;
+      --d.kp_deg[d.edge_from[pe]];
+      --d.kp_deg[d.edge_to[pe]];
+      ++pe_i;
+    }
+    ++d.kp_stamp;
+    KpMarkComponent(ref d, pb, 2);
+    let a_count: i32 = KpMarkComponent(ref d, v, 1);
+    // The FDH has to be on the far side for the scoring to mean anything; if
+    // the split put it with the terminal, this key path was not on the route.
+    var ok: bool = d.kp_comp[fdh] == d.kp_stamp * 4 + 2;
+    var route: i32 = 0;
+    var stop: i32 = -1;
+    d.rr_splice_n = 0;
+    if (ok) {
+      RrTreeDist(ref d, fdh, RrDbBase());
+      RrTreeDist(ref d, target, RrDaBase());
+      stop = RrReconnect(ref d, a_count, ref route);
+      ok = stop >= 0;
+    }
+    if (ok) {
+      let bought: i32 = RrApplyPath(ref d, stop);
+      ForestBfs(ref d, fdh);
+      if (RrExcess(ref d, scope, sid, budget) < before) {
+        d.rr_trench_m += bought;
+        return true;
+      }
+      RrUnsplice(ref d);
+    }
+    pe_i = 0;
+    while (pe_i < plen) {
+      let pe: i32 = d.kp_edge[pe_i];
+      d.forest_edge[pe] = true;
+      ++d.kp_deg[d.edge_from[pe]];
+      ++d.kp_deg[d.edge_to[pe]];
+      ++pe_i;
+    }
+    // The trial walked the tree from the FDH and left its own parent
+    // pointers behind; restore the ones the climb reads, then step up.
+    ForestBfs(ref d, fdh);
+    v = pb;
+  }
+  return false;
+}
+
+// Repair every cluster whose terminals run past their distribution
+// allowance, worst first. A failed terminal is blocked rather than ending
+// the cluster — the worst one is often the one no shortcut reaches, and
+// abandoning the cluster there leaves the eight behind it untouched. An
+// accepted move clears the block list, because the tree it was computed
+// against is gone.
+//
+// Termination: every accepted move strictly lowers the cluster's summed
+// excess, a bounded non-negative integer, and every rejected one blocks a
+// terminal that is never unblocked without an accept. The attempt cap bounds
+// the pathological case where accepts and blocks alternate.
+// Drives one scope to a local optimum: repeatedly repair the worst violating
+// target until nothing is over or every candidate has failed on the current
+// tree. Returns the generation counter so the caller can keep block marks
+// distinct across scopes.
+fn RrScope(ref d: Design, scope: i32, sid: i32, root: i32, budget: i32,
+           gen_in: i32) -> i32 {
+  var gen: i32 = gen_in + 1;
+  var attempts: i32 = 0;
+  var moves: i32 = 0;
+  while (attempts < 64) {
+    ForestBfs(ref d, root);
+    let excess: i64 = RrExcess(ref d, scope, sid, budget);
+    if (excess == 0) {
+      break;
+    }
+    let id: i32 = RrWorstTarget(ref d, scope, sid, budget, gen);
+    if (id == -1) {
+      break;   // every violating target here has been tried on this tree
+    }
+    ++attempts;
+    ++d.rr_tried;
+    if (RrRepair(ref d, scope, sid, id, root, budget, excess)) {
+      ++moves;
+      ++d.rr_moves;
+      ++gen;   // the tree moved; earlier failures deserve another look
+    } else {
+      d.seed_dist[RrBlockAt(scope, id)] = gen;
+    }
+  }
+  if (moves > 0) {
+    ++d.rr_rounds;
+  }
+  return gen;
+}
+
+fn ReachRepair(ref d: Design) {
+  d.rr_rounds = 0;
+  d.rr_moves = 0;
+  d.rr_tried = 0;
+  d.rr_trench_m = 0;
+  d.rr_splice_n = 0;
+  d.rr_rollback = 0;
+  KpRefreshDegrees(ref d);
+  var n: i32 = 0;
+  while (n < d.node_count) {
+    d.kp_comp[n] = -1;
+    ++n;
+  }
+  var b0: i32 = 0;
+  while (b0 < 98304) {
+    d.seed_dist[RrBlockBase() + b0] = -1;
+    ++b0;
+  }
+  var gen: i32 = 0;
+
+  // --- distribution: one root per serving area, one shared allowance ---
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    // What the feeder and the area's worst drop have not already spent.
+    var worst_drop: i32 = 0;
+    var p: i32 = 0;
+    while (p < d.prem_count) {
+      if (d.prem_cluster[p] == c and d.prem_terminal[p] != -1 and
+          d.prem_drop_len[p] > worst_drop) {
+        worst_drop = d.prem_drop_len[p];
+      }
+      ++p;
+    }
+    var budget: i32 = MaxRouteM() - d.fdh_route_len[c] - worst_drop;
+    if (budget < 0) {
+      budget = 0;
+    }
+    gen = RrScope(ref d, ScopeDist(), c, d.fdh_node[c], budget, gen);
+    ++c;
+  }
+
+  // --- feeder: allowance per area is the budget its own tail leaves ---
+  var c2: i32 = 0;
+  while (c2 < d.cluster_count) {
+    ForestBfs(ref d, d.fdh_node[c2]);
+    var tail: i32 = 0;
+    var p2: i32 = 0;
+    while (p2 < d.prem_count) {
+      if (d.prem_cluster[p2] == c2 and d.prem_terminal[p2] != -1) {
+        let tn: i32 = d.term_node[d.prem_terminal[p2]];
+        if (d.in_tree[tn]) {
+          let v: i32 = d.node_path_m[tn] + d.prem_drop_len[p2];
+          if (v > tail) {
+            tail = v;
+          }
+        }
+      }
+      ++p2;
+    }
+    var allow: i32 = MaxRouteM() - tail;
+    if (allow < 0) {
+      allow = 0;
+    }
+    d.seed_dist[RrFeedBase() + c2] = allow;
+    ++c2;
+  }
+  var h: i32 = 0;
+  while (h < d.co_count) {
+    gen = RrScope(ref d, ScopeFeeder(), h, d.co_nodes[h], 0, gen);
+    ++h;
+  }
+}
+
 // The union of per-cluster distribution trees and feeder paths chooses its
 // corridors independently, so the used trench both re-opened the road
 // lattice's cycles AND paid for corridors a global view would never open.
@@ -2904,6 +3382,35 @@ fn DeloopTrench(ref d: Design) {
     d.rs_gain = 0;
     RouteOnTrenchTree(ref d);
     over = TrenchRouteOverBudget(ref d);  // refreshes the reported max too
+  }
+
+  // Phase 3b: reach repair (stage 9d). Last, on the tree that would have
+  // shipped, and only when there is something to repair. It is the one pass
+  // that spends trench instead of saving it, so it gets the same wholesale
+  // undo: if it did not reduce the count it exists to reduce, it never ran.
+  d.rr_over_before = over;
+  d.rr_over_after = over;
+  if (over > 0) {
+    var e2: i32 = 0;
+    while (e2 < d.edge_count) {
+      d.kp_saved[e2] = d.forest_edge[e2];
+      ++e2;
+    }
+    ReachRepair(ref d);
+    if (d.rr_moves > 0) {
+      RouteOnTrenchTree(ref d);
+      let after: i32 = TrenchRouteOverBudget(ref d);
+      if (after < over) {
+        d.rr_over_after = after;
+        over = after;
+      } else {
+        KpRestoreTree(ref d);
+        d.rr_rollback = 1;   // moves stay reported; rollback says they went
+        d.rr_trench_m = 0;
+        RouteOnTrenchTree(ref d);
+        over = TrenchRouteOverBudget(ref d);
+      }
+    }
   }
 
   // Phase 4: trench only where cable actually runs. A subset of a forest

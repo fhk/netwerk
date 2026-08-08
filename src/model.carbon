@@ -347,6 +347,16 @@ class Design {
   var rs_freed_m: i32;
   var rs_gain: i64;                  // summed accepted scorer deltas (< 0)
 
+  // --- stage 9d, reach repair: diagnostics reported under "sweeps:" ---
+  var rr_rounds: i32;
+  var rr_moves: i32;                 // accepted reach-driven reconnections
+  var rr_tried: i32;                 // violating terminals examined
+  var rr_over_before: i32;           // premises over budget entering 9d
+  var rr_over_after: i32;            // ... and leaving it
+  var rr_trench_m: i32;              // trench metres bought for reach
+  var rr_splice_n: i32;              // edges in the splice under trial
+  var rr_rollback: i32;              // 1 when the pass was undone whole
+
   // --- two-sweep bookkeeping, reported under "sweeps:" ---
   var pi_min: i32;
   var pi_med: i32;
