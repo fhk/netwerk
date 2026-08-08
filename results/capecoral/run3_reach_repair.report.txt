@@ -1,0 +1,321 @@
+design:
+  premises=106925 units=106925 serving_areas=248 terminals=16756
+  co_node=78583 head_ends=21 olt_chassis=26 olt_cards=206 pon_ports_used=2724
+  area 0: fdh_node=83067 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17056
+  area 1: fdh_node=71672 premises=432 units=432 cabinet=432 splitters=11 feeder_m=20338
+  area 2: fdh_node=10976 premises=264 units=264 cabinet=288 splitters=7 feeder_m=1628
+  area 3: fdh_node=2526 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13827
+  area 4: fdh_node=63990 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 5: fdh_node=1076 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14907
+  area 6: fdh_node=21750 premises=432 units=432 cabinet=432 splitters=11 feeder_m=19117
+  area 7: fdh_node=83384 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 8: fdh_node=50933 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 9: fdh_node=78379 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18814
+  area 10: fdh_node=3895 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13737
+  area 11: fdh_node=58767 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 12: fdh_node=63787 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18188
+  area 13: fdh_node=82520 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12722
+  area 14: fdh_node=65774 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3179
+  area 15: fdh_node=71477 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16123
+  area 16: fdh_node=10284 premises=432 units=432 cabinet=432 splitters=11 feeder_m=7601
+  area 17: fdh_node=69124 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13728
+  area 18: fdh_node=25461 premises=432 units=432 cabinet=432 splitters=11 feeder_m=27342
+  area 19: fdh_node=38295 premises=432 units=432 cabinet=432 splitters=11 feeder_m=32560
+  area 20: fdh_node=11682 premises=432 units=432 cabinet=432 splitters=11 feeder_m=6370
+  area 21: fdh_node=57261 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12216
+  area 22: fdh_node=9049 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 23: fdh_node=13877 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4923
+  area 24: fdh_node=48105 premises=432 units=432 cabinet=432 splitters=11 feeder_m=21596
+  area 25: fdh_node=51962 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 26: fdh_node=79929 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3761
+  area 27: fdh_node=59828 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17938
+  area 28: fdh_node=33726 premises=432 units=432 cabinet=432 splitters=11 feeder_m=26768
+  area 29: fdh_node=5534 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10204
+  area 30: fdh_node=33719 premises=432 units=432 cabinet=432 splitters=11 feeder_m=19536
+  area 31: fdh_node=60080 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12712
+  area 32: fdh_node=14979 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11350
+  area 33: fdh_node=33343 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15726
+  area 34: fdh_node=34083 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15532
+  area 35: fdh_node=59628 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9132
+  area 36: fdh_node=31034 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13129
+  area 37: fdh_node=29798 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3438
+  area 38: fdh_node=30423 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13508
+  area 39: fdh_node=19212 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17717
+  area 40: fdh_node=60308 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11371
+  area 41: fdh_node=8733 premises=432 units=432 cabinet=432 splitters=11 feeder_m=23487
+  area 42: fdh_node=47119 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14194
+  area 43: fdh_node=71593 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 44: fdh_node=82399 premises=432 units=432 cabinet=432 splitters=11 feeder_m=19608
+  area 45: fdh_node=48325 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17203
+  area 46: fdh_node=69862 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 47: fdh_node=26629 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14212
+  area 48: fdh_node=22476 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8389
+  area 49: fdh_node=78583 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 50: fdh_node=52492 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5867
+  area 51: fdh_node=49328 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16617
+  area 52: fdh_node=18393 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8765
+  area 53: fdh_node=79579 premises=432 units=432 cabinet=432 splitters=11 feeder_m=754
+  area 54: fdh_node=68538 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15811
+  area 55: fdh_node=32920 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10799
+  area 56: fdh_node=9737 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13299
+  area 57: fdh_node=17565 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12711
+  area 58: fdh_node=73093 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 59: fdh_node=36114 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11393
+  area 60: fdh_node=28779 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 61: fdh_node=39844 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11144
+  area 62: fdh_node=14028 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 63: fdh_node=45555 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15065
+  area 64: fdh_node=14318 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17850
+  area 65: fdh_node=54005 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14890
+  area 66: fdh_node=60778 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10993
+  area 67: fdh_node=31497 premises=432 units=432 cabinet=432 splitters=11 feeder_m=27441
+  area 68: fdh_node=55526 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8257
+  area 69: fdh_node=32372 premises=432 units=432 cabinet=432 splitters=11 feeder_m=25932
+  area 70: fdh_node=50484 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13385
+  area 71: fdh_node=55956 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18141
+  area 72: fdh_node=44182 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16921
+  area 73: fdh_node=4119 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10121
+  area 74: fdh_node=32106 premises=432 units=432 cabinet=432 splitters=11 feeder_m=25161
+  area 75: fdh_node=76469 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17375
+  area 76: fdh_node=9356 premises=432 units=432 cabinet=432 splitters=11 feeder_m=23068
+  area 77: fdh_node=8360 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15401
+  area 78: fdh_node=45391 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4350
+  area 79: fdh_node=31937 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18320
+  area 80: fdh_node=51211 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14224
+  area 81: fdh_node=13958 premises=432 units=432 cabinet=432 splitters=11 feeder_m=22859
+  area 82: fdh_node=22724 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16056
+  area 83: fdh_node=14697 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3490
+  area 84: fdh_node=72891 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10539
+  area 85: fdh_node=60559 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9604
+  area 86: fdh_node=29619 premises=432 units=432 cabinet=432 splitters=11 feeder_m=25805
+  area 87: fdh_node=37883 premises=432 units=432 cabinet=432 splitters=11 feeder_m=794
+  area 88: fdh_node=37545 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11524
+  area 89: fdh_node=43398 premises=432 units=432 cabinet=432 splitters=11 feeder_m=6933
+  area 90: fdh_node=4485 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13063
+  area 91: fdh_node=63309 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14076
+  area 92: fdh_node=23888 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11192
+  area 93: fdh_node=45595 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11246
+  area 94: fdh_node=66818 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11874
+  area 95: fdh_node=46073 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 96: fdh_node=50288 premises=432 units=432 cabinet=432 splitters=11 feeder_m=20901
+  area 97: fdh_node=18323 premises=432 units=432 cabinet=432 splitters=11 feeder_m=19280
+  area 98: fdh_node=35310 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8676
+  area 99: fdh_node=26959 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13904
+  area 100: fdh_node=68281 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11982
+  area 101: fdh_node=20189 premises=432 units=432 cabinet=432 splitters=11 feeder_m=7430
+  area 102: fdh_node=20408 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9956
+  area 103: fdh_node=69967 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9041
+  area 104: fdh_node=79122 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 105: fdh_node=82604 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15492
+  area 106: fdh_node=64856 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 107: fdh_node=42198 premises=432 units=432 cabinet=432 splitters=11 feeder_m=21161
+  area 108: fdh_node=58922 premises=432 units=432 cabinet=432 splitters=11 feeder_m=1659
+  area 109: fdh_node=6223 premises=432 units=432 cabinet=432 splitters=11 feeder_m=22449
+  area 110: fdh_node=1604 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14651
+  area 111: fdh_node=12453 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 112: fdh_node=47388 premises=432 units=432 cabinet=432 splitters=11 feeder_m=29347
+  area 113: fdh_node=877 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18261
+  area 114: fdh_node=28229 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16675
+  area 115: fdh_node=36114 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11393
+  area 116: fdh_node=67324 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17433
+  area 117: fdh_node=53626 premises=432 units=432 cabinet=432 splitters=11 feeder_m=7013
+  area 118: fdh_node=49511 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15386
+  area 119: fdh_node=17848 premises=389 units=389 cabinet=432 splitters=11 feeder_m=0
+  area 120: fdh_node=11903 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17211
+  area 121: fdh_node=17767 premises=432 units=432 cabinet=432 splitters=11 feeder_m=26223
+  area 122: fdh_node=82583 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15759
+  area 123: fdh_node=70469 premises=432 units=432 cabinet=432 splitters=11 feeder_m=7244
+  area 124: fdh_node=3255 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5874
+  area 125: fdh_node=5085 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8448
+  area 126: fdh_node=40642 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17803
+  area 127: fdh_node=403 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16408
+  area 128: fdh_node=16902 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16199
+  area 129: fdh_node=13685 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17134
+  area 130: fdh_node=7625 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3052
+  area 131: fdh_node=41699 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 132: fdh_node=10817 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16702
+  area 133: fdh_node=48728 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5601
+  area 134: fdh_node=71408 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10892
+  area 135: fdh_node=9226 premises=432 units=432 cabinet=432 splitters=11 feeder_m=23220
+  area 136: fdh_node=50990 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12973
+  area 137: fdh_node=36914 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18450
+  area 138: fdh_node=29352 premises=432 units=432 cabinet=432 splitters=11 feeder_m=26115
+  area 139: fdh_node=84224 premises=432 units=432 cabinet=432 splitters=11 feeder_m=24488
+  area 140: fdh_node=70534 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3706
+  area 141: fdh_node=69679 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14974
+  area 142: fdh_node=79985 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2840
+  area 143: fdh_node=67497 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14774
+  area 144: fdh_node=67101 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10958
+  area 145: fdh_node=40857 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 146: fdh_node=29054 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14488
+  area 147: fdh_node=59136 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11461
+  area 148: fdh_node=63694 premises=432 units=432 cabinet=432 splitters=11 feeder_m=11634
+  area 149: fdh_node=62789 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16812
+  area 150: fdh_node=20016 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8560
+  area 151: fdh_node=53733 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18662
+  area 152: fdh_node=38696 premises=432 units=432 cabinet=432 splitters=11 feeder_m=22868
+  area 153: fdh_node=46361 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17835
+  area 154: fdh_node=24667 premises=432 units=432 cabinet=432 splitters=11 feeder_m=21505
+  area 155: fdh_node=65382 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2216
+  area 156: fdh_node=57990 premises=432 units=432 cabinet=432 splitters=11 feeder_m=31603
+  area 157: fdh_node=66137 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8348
+  area 158: fdh_node=24121 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12436
+  area 159: fdh_node=6267 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3636
+  area 160: fdh_node=11451 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10346
+  area 161: fdh_node=32198 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10269
+  area 162: fdh_node=36284 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18062
+  area 163: fdh_node=67253 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 164: fdh_node=22434 premises=432 units=432 cabinet=432 splitters=11 feeder_m=7770
+  area 165: fdh_node=33603 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12008
+  area 166: fdh_node=3953 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14661
+  area 167: fdh_node=42583 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18900
+  area 168: fdh_node=76320 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18862
+  area 169: fdh_node=25232 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14500
+  area 170: fdh_node=7257 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9033
+  area 171: fdh_node=68631 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18031
+  area 172: fdh_node=12500 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13279
+  area 173: fdh_node=3123 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4776
+  area 174: fdh_node=22575 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15768
+  area 175: fdh_node=31643 premises=432 units=432 cabinet=432 splitters=11 feeder_m=28771
+  area 176: fdh_node=2038 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12945
+  area 177: fdh_node=72658 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12108
+  area 178: fdh_node=84190 premises=432 units=432 cabinet=432 splitters=11 feeder_m=23862
+  area 179: fdh_node=49463 premises=432 units=432 cabinet=432 splitters=11 feeder_m=28795
+  area 180: fdh_node=75374 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16211
+  area 181: fdh_node=74669 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13649
+  area 182: fdh_node=18127 premises=432 units=432 cabinet=432 splitters=11 feeder_m=24525
+  area 183: fdh_node=71422 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10737
+  area 184: fdh_node=16576 premises=432 units=432 cabinet=432 splitters=11 feeder_m=915
+  area 185: fdh_node=67651 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12440
+  area 186: fdh_node=11368 premises=432 units=432 cabinet=432 splitters=11 feeder_m=27352
+  area 187: fdh_node=63321 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13982
+  area 188: fdh_node=56477 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13995
+  area 189: fdh_node=21181 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14154
+  area 190: fdh_node=42672 premises=432 units=432 cabinet=432 splitters=11 feeder_m=24707
+  area 191: fdh_node=36698 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12126
+  area 192: fdh_node=82051 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18712
+  area 193: fdh_node=37295 premises=432 units=432 cabinet=432 splitters=11 feeder_m=7876
+  area 194: fdh_node=28519 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17863
+  area 195: fdh_node=27605 premises=432 units=432 cabinet=432 splitters=11 feeder_m=20407
+  area 196: fdh_node=77295 premises=432 units=432 cabinet=432 splitters=11 feeder_m=25002
+  area 197: fdh_node=15510 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12701
+  area 198: fdh_node=57514 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5699
+  area 199: fdh_node=64715 premises=432 units=432 cabinet=432 splitters=11 feeder_m=1419
+  area 200: fdh_node=7420 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10332
+  area 201: fdh_node=29891 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2202
+  area 202: fdh_node=71940 premises=432 units=432 cabinet=432 splitters=11 feeder_m=19872
+  area 203: fdh_node=23607 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9744
+  area 204: fdh_node=82240 premises=432 units=432 cabinet=432 splitters=11 feeder_m=19308
+  area 205: fdh_node=67895 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14196
+  area 206: fdh_node=49221 premises=432 units=432 cabinet=432 splitters=11 feeder_m=15550
+  area 207: fdh_node=64938 premises=432 units=432 cabinet=432 splitters=11 feeder_m=830
+  area 208: fdh_node=47890 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10027
+  area 209: fdh_node=20912 premises=432 units=432 cabinet=432 splitters=11 feeder_m=16360
+  area 210: fdh_node=68822 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5197
+  area 211: fdh_node=20355 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9997
+  area 212: fdh_node=53124 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8496
+  area 213: fdh_node=73453 premises=432 units=432 cabinet=432 splitters=11 feeder_m=7565
+  area 214: fdh_node=82848 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17201
+  area 215: fdh_node=45046 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10048
+  area 216: fdh_node=28748 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17153
+  area 217: fdh_node=22328 premises=432 units=432 cabinet=432 splitters=11 feeder_m=22873
+  area 218: fdh_node=70704 premises=432 units=432 cabinet=432 splitters=11 feeder_m=5791
+  area 219: fdh_node=42381 premises=432 units=432 cabinet=432 splitters=11 feeder_m=1990
+  area 220: fdh_node=25262 premises=432 units=432 cabinet=432 splitters=11 feeder_m=22739
+  area 221: fdh_node=78788 premises=432 units=432 cabinet=432 splitters=11 feeder_m=28374
+  area 222: fdh_node=42231 premises=432 units=432 cabinet=432 splitters=11 feeder_m=18448
+  area 223: fdh_node=76916 premises=432 units=432 cabinet=432 splitters=11 feeder_m=22888
+  area 224: fdh_node=31618 premises=432 units=432 cabinet=432 splitters=11 feeder_m=26660
+  area 225: fdh_node=76491 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17592
+  area 226: fdh_node=79728 premises=432 units=432 cabinet=432 splitters=11 feeder_m=2499
+  area 227: fdh_node=63485 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9764
+  area 228: fdh_node=17009 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17039
+  area 229: fdh_node=17157 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3557
+  area 230: fdh_node=57924 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3884
+  area 231: fdh_node=74565 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0
+  area 232: fdh_node=63036 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17795
+  area 233: fdh_node=10769 premises=432 units=432 cabinet=432 splitters=11 feeder_m=27575
+  area 234: fdh_node=6653 premises=432 units=432 cabinet=432 splitters=11 feeder_m=500
+  area 235: fdh_node=13278 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17696
+  area 236: fdh_node=70021 premises=432 units=432 cabinet=432 splitters=11 feeder_m=17813
+  area 237: fdh_node=70247 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8952
+  area 238: fdh_node=6244 premises=432 units=432 cabinet=432 splitters=11 feeder_m=3462
+  area 239: fdh_node=4327 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12308
+  area 240: fdh_node=20656 premises=432 units=432 cabinet=432 splitters=11 feeder_m=12454
+  area 241: fdh_node=24405 premises=432 units=432 cabinet=432 splitters=11 feeder_m=25882
+  area 242: fdh_node=26683 premises=432 units=432 cabinet=432 splitters=11 feeder_m=14752
+  area 243: fdh_node=45890 premises=432 units=432 cabinet=432 splitters=11 feeder_m=8270
+  area 244: fdh_node=15691 premises=432 units=432 cabinet=432 splitters=11 feeder_m=9281
+  area 245: fdh_node=65442 premises=432 units=432 cabinet=432 splitters=11 feeder_m=13830
+  area 246: fdh_node=45209 premises=432 units=432 cabinet=432 splitters=11 feeder_m=6280
+  area 247: fdh_node=67980 premises=432 units=432 cabinet=432 splitters=11 feeder_m=10980
+utilization:
+  terminal_ports: 106925/112546 = 95.0%
+  splitter_ports: 69551/69798 = 99.6%
+  fdh_capacity: 106925/106992 = 99.9%
+  olt_card_ports: 2724/2724 = 100.0%
+bom:
+  trench_soft qty=943376 m unit=$45.00 ext=$42451920.00
+  trench_asphalt qty=55952 m unit=$150.00 ext=$8392800.00
+  dist_cable_12f qty=184454 m unit=$0.95 ext=$175231.30
+  dist_cable_24f qty=148336 m unit=$1.30 ext=$192836.80
+  dist_cable_48f qty=171681 m unit=$2.10 ext=$360530.10
+  dist_cable_96f qty=186432 m unit=$3.40 ext=$633868.80
+  dist_cable_144f qty=103039 m unit=$4.70 ext=$484283.30
+  dist_cable_288f qty=769066 m unit=$7.80 ext=$5998714.80
+  feeder_cable_12f qty=95655 m unit=$0.95 ext=$90872.25
+  feeder_cable_24f qty=37974 m unit=$1.30 ext=$49366.20
+  feeder_cable_48f qty=29690 m unit=$2.10 ext=$62349.00
+  feeder_cable_96f qty=41863 m unit=$3.40 ext=$142334.20
+  feeder_cable_144f qty=23606 m unit=$4.70 ext=$110948.20
+  feeder_cable_288f qty=114590 m unit=$7.80 ext=$893802.00
+  drop_cable qty=7645674 m unit=$1.50 ext=$11468511.00
+  drop_assembly qty=106925 ea unit=$120.00 ext=$12831000.00
+  fdh_cabinet_288 qty=1 ea unit=$1800.00 ext=$1800.00
+  fdh_cabinet_432 qty=247 ea unit=$2500.00 ext=$617500.00
+  splitter_1_2 qty=247 ea unit=$40.00 ext=$9880.00
+  splitter_1_4 qty=2 ea unit=$60.00 ext=$120.00
+  splitter_1_8 qty=248 ea unit=$90.00 ext=$22320.00
+  splitter_1_16 qty=247 ea unit=$120.00 ext=$29640.00
+  splitter_1_32 qty=1980 ea unit=$180.00 ext=$356400.00
+  terminal_2p qty=2466 ea unit=$80.00 ext=$197280.00
+  terminal_4p qty=3026 ea unit=$120.00 ext=$363120.00
+  terminal_6p qty=3203 ea unit=$150.00 ext=$480450.00
+  terminal_8p qty=5110 ea unit=$180.00 ext=$919800.00
+  terminal_12p qty=2951 ea unit=$250.00 ext=$737750.00
+  olt_card_1p qty=6 ea unit=$150.00 ext=$900.00
+  olt_card_2p qty=19 ea unit=$220.00 ext=$4180.00
+  olt_card_4p qty=12 ea unit=$400.00 ext=$4800.00
+  olt_card_8p qty=9 ea unit=$700.00 ext=$6300.00
+  olt_card_16p qty=160 ea unit=$1200.00 ext=$192000.00
+  olt_port_optics qty=2724 ea unit=$85.00 ext=$231540.00
+  olt_chassis qty=26 ea unit=$18000.00 ext=$468000.00
+  head_end_site qty=21 ea unit=$120000.00 ext=$2520000.00
+cost:
+  total_capex=$91503147.95
+  per_unit_passed=$855.76
+  trench_m=999328 cable_route_m=1271303 sharing_x100=127
+sweeps:
+  assignment_m: seeds=152900031 lloyd=123429488 exact=118197012 cycles=4096 moved=10342 stop=1
+  trench_price_cents: min=0 median=0 max=2079000 nodes_over_50k=22083
+  trench_price_candidates: n=84203 median=0 over_50k=21874
+  priced_sweep_terminals: priced=3 over_50k=2 spur_cents=283500
+  sweep_score: unpriced=9028567995 priced=9054354905 kept=1
+  uncross_2opt: swaps=12633 scans=6 residual=19111 residual_xarea=14187
+  keypath_exchange: rounds=5 moves=2524 paths=17238 tree_m=930989->930989 cents=4644720000->4644720000 rollback=1 route_max_m=78394
+  spur_resite: rounds=2 moves=0 spurs_left=1463 trench_m=-0 cents=-0 gain=0
+  reach_repair: rounds=129 moves=1488 tried=5959 over=26346->22675 trench_m=+180746 rollback=0
+qa:
+  premises_served: ok
+  drop_length: ok
+  fdh_capacity: ok
+  terminal_ports: ok
+  splitter_capacity: ok
+  route_length_budget: 22657 FAIL
+    (distribution+drop tail alone over budget: 2503; worst tail 52526 m)
+  feeder_routed: ok
+  util_terminal_ports: 95.0% ok
+  util_splitter_ports: 99.6% ok
+  util_fdh_capacity: 99.9% ok
+  util_olt_card_ports: 100.0% ok
+qa verdict: FAIL
