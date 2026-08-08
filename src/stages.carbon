@@ -1719,7 +1719,7 @@ fn KpMarkComponent(ref d: Design, root: i32, side: i32) -> i32 {
     let u: i32 = d.heap_node[head];
     ++head;
     if (side == 1) {
-      d.seed_dist[32768 + head - 1] = u;
+      d.seed_dist[393216 + head - 1] = u;
     }
     var a: i32 = d.adj_head[u];
     while (a != -1) {
@@ -1750,7 +1750,7 @@ fn KpReconnect(ref d: Design, a_count: i32, limit: i64) -> i32 {
   DijkstraReset(ref d);
   var i: i32 = 0;
   while (i < a_count) {
-    AddSource(ref d, d.seed_dist[32768 + i]);
+    AddSource(ref d, d.seed_dist[393216 + i]);
     ++i;
   }
   while (d.heap_size > 0) {
@@ -1814,14 +1814,14 @@ fn KpRound(ref d: Design) -> i32 {
       var it: i32 = d.adj_head[a];
       while (it != -1) {
         let e: i32 = d.adj_edge[it];
-        if (d.forest_edge[e] and cnt < 8192) {
+        if (d.forest_edge[e] and cnt < 98304) {
           // Each key path is seen once from each end; keep the a < b copy.
           let b: i32 = KpWalk(ref d, a, e);
           if (b > a) {
             d.seed_dist[cnt] = a;
-            d.seed_dist[8192 + cnt] = e;
-            d.seed_dist[16384 + cnt] = d.kp_cost as i32;
-            d.seed_dist[24576 + cnt] = cnt;
+            d.seed_dist[98304 + cnt] = e;
+            d.seed_dist[196608 + cnt] = d.kp_cost as i32;
+            d.seed_dist[294912 + cnt] = cnt;
             ++cnt;
           }
         }
@@ -1842,22 +1842,22 @@ fn KpRound(ref d: Design) -> i32 {
   while (gap >= 1) {
     var i: i32 = gap;
     while (i < cnt) {
-      let cur: i32 = d.seed_dist[24576 + i];
-      let ck: i32 = d.seed_dist[16384 + cur];
-      let ce: i32 = d.seed_dist[8192 + cur];
+      let cur: i32 = d.seed_dist[294912 + i];
+      let ck: i32 = d.seed_dist[196608 + cur];
+      let ce: i32 = d.seed_dist[98304 + cur];
       var j: i32 = i;
       while (j >= gap) {
-        let o: i32 = d.seed_dist[24576 + j - gap];
-        let ok: i32 = d.seed_dist[16384 + o];
-        let oe: i32 = d.seed_dist[8192 + o];
+        let o: i32 = d.seed_dist[294912 + j - gap];
+        let ok: i32 = d.seed_dist[196608 + o];
+        let oe: i32 = d.seed_dist[98304 + o];
         if (ok < ck or (ok == ck and oe > ce)) {
-          d.seed_dist[24576 + j] = o;
+          d.seed_dist[294912 + j] = o;
           j = j - gap;
         } else {
           break;
         }
       }
-      d.seed_dist[24576 + j] = cur;
+      d.seed_dist[294912 + j] = cur;
       ++i;
     }
     gap = gap / 3;
@@ -1866,10 +1866,10 @@ fn KpRound(ref d: Design) -> i32 {
   var moves: i32 = 0;
   var k: i32 = 0;
   while (k < cnt) {
-    let idx: i32 = d.seed_dist[24576 + k];
+    let idx: i32 = d.seed_dist[294912 + k];
     ++k;
     let pa: i32 = d.seed_dist[idx];
-    let pe0: i32 = d.seed_dist[8192 + idx];
+    let pe0: i32 = d.seed_dist[98304 + idx];
     if (not d.forest_edge[pe0] or d.kp_deg[pa] == 0 or
         not KpIsKey(ref d, pa)) {
       continue;  // stale: an earlier exchange moved this ground
@@ -2055,20 +2055,21 @@ fn KpRestoreTree(ref d: Design) {
 // stay 0: the retired spur is a subtree containing no required node, and
 // deleting such a subtree from a tree leaves a tree.
 //
-// Scratch map inside seed_dist, all of it above stage 9a's 49152 (9a has
+// Scratch map inside seed_dist, on a MaxNodes()=98304 stride because
+// every region is indexed by node or premises id. All of it above stage 9a's 49152 (9a has
 // finished by the time this runs, but keeping the ranges disjoint means the
 // two stages can be read independently).
 // ---------------------------------------------------------------------------
 
-fn RsCntBase() -> i32 { return 49152; }     // required nodes in v's subtree
-fn RsTermBase() -> i32 { return 65536; }    // live terminals sited at v
-fn RsOrderBase() -> i32 { return 81920; }   // CO-rooted BFS order
-fn RsFixedBase() -> i32 { return 98304; }   // v is the CO or an FDH site
-fn RsPgHead() -> i32 { return 114688; }     // premises grid, 128 m cells
-fn RsPgNext() -> i32 { return 131072; }
-fn RsPList() -> i32 { return 143360; }      // premises bucketed by terminal
-fn RsPStart() -> i32 { return 155648; }
-fn RsPCur() -> i32 { return 163840; }       // fill cursor for the buckets
+fn RsCntBase() -> i32 { return 491520; }     // required nodes in v's subtree
+fn RsTermBase() -> i32 { return 589824; }    // live terminals sited at v
+fn RsOrderBase() -> i32 { return 688128; }   // CO-rooted BFS order
+fn RsFixedBase() -> i32 { return 786432; }   // v is the CO or an FDH site
+fn RsPgHead() -> i32 { return 884736; }     // premises grid, 128 m cells
+fn RsPgNext() -> i32 { return 983040; }
+fn RsPList() -> i32 { return 1081344; }      // premises bucketed by terminal
+fn RsPStart() -> i32 { return 1179648; }
+fn RsPCur() -> i32 { return 1277952; }       // fill cursor for the buckets
 
 // Indexes every premises by its own position. Static for the whole run —
 // premises never move — but it lives in scratch that PackTerminals reuses
