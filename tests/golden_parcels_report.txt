@@ -75,6 +75,7 @@ qa:
   terminal_ports: ok
   splitter_capacity: ok
   route_length_budget: ok
+    (distribution+drop tail alone over budget: 0; worst tail 12761 m)
   feeder_routed: ok
   util_terminal_ports: 95.0% ok
   util_splitter_ports: 99.6% ok

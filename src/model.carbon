@@ -249,6 +249,12 @@ class Design {
   var co_count: i32;
   var co_nodes: array(i32, 512);
   var cluster_co: array(i32, 512);   // head-end serving each serving area
+  var is_co: array(bool, 98304);     // node is a head-end (tree walks stop here)
+  // Diagnostics: premises whose distribution+drop tail alone exceeds
+  // MaxRouteM. No head-end placement can fix those — they need smaller
+  // serving areas — so they are reported apart from feeder-driven misses.
+  var tail_over: i32;
+  var tail_max: i32;
 
   // --- per-edge cable/trench usage (design results) ---
   var dist_fibers: array(i32, 262144);
@@ -424,6 +430,8 @@ fn InitDesign(ref d: Design) {
     d.term_count = 0;
     d.co_node = -1;
     d.co_count = 0;
+    d.tail_over = 0;
+    d.tail_max = 0;
     d.total_units = 0;
     d.heap_size = 0;
     d.assign_cost_seed = 0;

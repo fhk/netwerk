@@ -298,15 +298,26 @@ fn RunQa(ref d: Design) -> i32 {
   while (p < d.prem_count) {
     let tp: i32 = d.prem_terminal[p];
     if (tp != -1) {
-      let route_m: i32 = d.fdh_route_len[d.prem_cluster[p]] +
-                         d.term_path_len[tp] + d.prem_drop_len[p];
+      let tail: i32 = d.term_path_len[tp] + d.prem_drop_len[p];
+      let route_m: i32 = d.fdh_route_len[d.prem_cluster[p]] + tail;
       if (route_m > MaxRouteM()) {
         ++over_budget;
+      }
+      if (tail > MaxRouteM()) {
+        ++d.tail_over;      // unreachable by any head-end placement
+      }
+      if (tail > d.tail_max) {
+        d.tail_max = tail;
       }
     }
     ++p;
   }
   QaLine("route_length_budget", over_budget);
+  Core.PrintStr("    (distribution+drop tail alone over budget: ");
+  PrintInt(d.tail_over);
+  Core.PrintStr("; worst tail ");
+  PrintInt(d.tail_max);
+  Core.PrintStr(" m)\n");
   errors += over_budget;
 
   // Feeder routed to every FDH (CO reachable).

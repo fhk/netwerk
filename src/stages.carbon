@@ -1524,6 +1524,12 @@ fn SelectCo(ref d: Design) {
   d.co_node = best_node;
   d.co_nodes[0] = best_node;
   d.co_count = 1;
+  var z: i32 = 0;
+  while (z < d.node_count) {
+    d.is_co[z] = false;
+    ++z;
+  }
+  d.is_co[best_node] = true;
 
   // Feeder allowance per area = budget - worst (distribution + drop) tail.
   var slack: array(i32, 512);
@@ -1547,6 +1553,7 @@ fn SelectCo(ref d: Design) {
 
   // Farthest-first until every area fits its allowance.
   var guard: i32 = 0;
+  var prev_over: i64 = 9223372036854775807;
   while (guard < MaxClusters()) {
     ++guard;
     DijkstraReset(ref d);
@@ -1569,10 +1576,19 @@ fn SelectCo(ref d: Design) {
       }
       ++c3;
     }
-    if (worst == -1 or worst_over <= 0 or d.co_count >= MaxClusters()) {
+    if (worst == -1 or worst_over <= 0 or d.co_count >= d.cluster_count) {
       break;
     }
+    // A serving area whose distribution+drop tail alone blows MaxRouteM
+    // cannot be rescued by any head-end position; without this the greedy
+    // re-opens the same site forever. Stop when the worst violation stops
+    // improving, and never open a duplicate.
+    if (d.is_co[d.fdh_node[worst]] or worst_over >= prev_over) {
+      break;
+    }
+    prev_over = worst_over;
     d.co_nodes[d.co_count] = d.fdh_node[worst];
+    d.is_co[d.fdh_node[worst]] = true;
     ++d.co_count;
   }
 
@@ -2691,11 +2707,13 @@ fn RouteOnTrenchTree(ref d: Design) {
   c = 0;
   while (c < d.cluster_count) {
     d.fdh_route_len[c] = 0;
-    if (d.fdh_node[c] != d.co_node and d.in_tree[d.fdh_node[c]]) {
+    if (not d.is_co[d.fdh_node[c]] and d.in_tree[d.fdh_node[c]]) {
       let fibers: i32 = d.fdh_splitters[c] + 1;
       var v: i32 = d.fdh_node[c];
       var meters: i32 = 0;
-      while (v != d.co_node and d.tree_parent_edge[v] != -1) {
+      // Stop at the first head-end on the way to the root: in a tree that
+      // is the head-end actually feeding this area.
+      while (not d.is_co[v] and d.tree_parent_edge[v] != -1) {
         let pe: i32 = d.tree_parent_edge[v];
         d.feeder_fibers[pe] += fibers;
         meters += d.edge_len[pe];
