@@ -143,6 +143,15 @@ fn OltCardCost(idx: i32) -> i64 {
 }
 
 fn OltChassisCardSlots() -> i32 { return 16; }
+fn OltChassisCost() -> i64 { return 1800000; }     // OLT chassis, $18,000
+
+// A head-end is a site, not a rack: hut or hardened cabinet, commercial
+// power, battery plant, HVAC and a backhaul tail. Reach-driven head-ends are
+// the standard fix for a long, thin service area, but they are not free —
+// this is what stops the optimizer from opening one per serving area.
+fn HeadEndSiteCost() -> i64 { return 12000000; }   // head-end site, $120,000
+// Structural bound on head-ends (sizes co_nodes / cluster_co bookkeeping).
+fn MaxHeadEnds() -> i32 { return 512; }
 
 // Surface classes for road edges.
 fn SurfaceSoft() -> i32 { return 0; }

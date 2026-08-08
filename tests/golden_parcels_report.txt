@@ -55,9 +55,11 @@ bom:
   olt_card_8p qty=1 ea unit=$700.00 ext=$700.00
   olt_card_16p qty=10 ea unit=$1200.00 ext=$12000.00
   olt_port_optics qty=172 ea unit=$85.00 ext=$14620.00
+  olt_chassis qty=1 ea unit=$18000.00 ext=$18000.00
+  head_end_site qty=1 ea unit=$120000.00 ext=$120000.00
 cost:
-  total_capex=$6704188.50
-  per_unit_passed=$997.79
+  total_capex=$6842188.50
+  per_unit_passed=$1018.33
   trench_m=99500 cable_route_m=123064 sharing_x100=123
 sweeps:
   assignment_m: seeds=9824970 lloyd=7685929 exact=6009457 cycles=1400 moved=3206 stop=0

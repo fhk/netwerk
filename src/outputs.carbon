@@ -118,20 +118,36 @@ fn FdhCapacityInstalled(ref d: Design) -> i32 {
   return cap;
 }
 
-// OLT line cards: full 16-port cards, then the remainder covered with the
-// minimum installed ports (rounded up to the 4-port granularity and filled
-// greedily from the largest card down) — the graduated-size rule again.
-fn OltCards(ref d: Design, ref count_by_size: array(i32, 5)) -> i32 {
-  let splitters: i32 = TotalSplitters(ref d);
-  var i: i32 = 0;
-  while (i < OltCardSizeCount()) {
-    count_by_size[i] = 0;
-    ++i;
+// PON ports terminating at each head-end: an area's splitters are fed from
+// the head-end its feeder comes off, so cards and chassis bin per site.
+fn PonPortsPerHeadEnd(ref d: Design, ref per_he: array(i32, 512)) {
+  var k: i32 = 0;
+  while (k < MaxClusters()) {
+    per_he[k] = 0;
+    ++k;
+  }
+  var c: i32 = 0;
+  while (c < d.cluster_count) {
+    var he: i32 = d.cluster_co[c];
+    if (he < 0 or he >= d.co_count) {
+      he = 0;
+    }
+    per_he[he] += d.fdh_splitters[c];
+    ++c;
+  }
+}
+
+// Cover `ports` with full 16-port cards, then the remainder with the minimum
+// installed ports filled greedily from the largest card down — the graduated-
+// size rule. Accumulates into count_by_size; returns the cards added.
+fn PackOltCards(ports: i32, ref count_by_size: array(i32, 5)) -> i32 {
+  if (ports <= 0) {
+    return 0;
   }
   let top: i32 = OltCardSizeCount() - 1;
-  count_by_size[top] = splitters / OltCardPorts(top);
-  let rem: i32 = splitters % OltCardPorts(top);
-  var cards: i32 = count_by_size[top];
+  var cards: i32 = ports / OltCardPorts(top);
+  count_by_size[top] += cards;
+  let rem: i32 = ports % OltCardPorts(top);
   if (rem > 0) {
     var need: i32 = CeilDiv(rem, OltCardPorts(0)) * OltCardPorts(0);
     var idx: i32 = top;
@@ -145,6 +161,46 @@ fn OltCards(ref d: Design, ref count_by_size: array(i32, 5)) -> i32 {
     }
   }
   return cards;
+}
+
+// Cards are packed per head-end, not against the city-wide splitter total:
+// a site's remainder buys its own card, it cannot borrow a spare port from
+// an OLT twenty kilometres away.
+fn OltCards(ref d: Design, ref count_by_size: array(i32, 5)) -> i32 {
+  var i: i32 = 0;
+  while (i < OltCardSizeCount()) {
+    count_by_size[i] = 0;
+    ++i;
+  }
+  var per_he: array(i32, 512);
+  PonPortsPerHeadEnd(ref d, ref per_he);
+  var cards: i32 = 0;
+  var k: i32 = 0;
+  while (k < d.co_count) {
+    cards += PackOltCards(per_he[k], ref count_by_size);
+    ++k;
+  }
+  return cards;
+}
+
+// Chassis are per site for the same reason — slots do not span buildings.
+fn OltChassisCount(ref d: Design) -> i32 {
+  var per_he: array(i32, 512);
+  PonPortsPerHeadEnd(ref d, ref per_he);
+  var chassis: i32 = 0;
+  var k: i32 = 0;
+  while (k < d.co_count) {
+    var by_size: array(i32, 5);
+    var i: i32 = 0;
+    while (i < OltCardSizeCount()) {
+      by_size[i] = 0;
+      ++i;
+    }
+    chassis += CeilDiv(PackOltCards(per_he[k], ref by_size),
+                       OltChassisCardSlots());
+    ++k;
+  }
+  return chassis;
 }
 
 fn OltPortsInstalled(ref d: Design) -> i32 {
@@ -435,7 +491,7 @@ fn Report(ref d: Design) -> i64 {
   let total_splitters: i32 = TotalSplitters(ref d);
   var olt_by_size: array(i32, 5);
   let olt_cards: i32 = OltCards(ref d, ref olt_by_size);
-  let olt_chassis: i32 = CeilDiv(olt_cards, OltChassisCardSlots());
+  let olt_chassis: i32 = OltChassisCount(ref d);
 
   // --- headline metrics ---
   Core.PrintStr("design:\n");
@@ -626,6 +682,18 @@ fn Report(ref d: Design) -> i64 {
   BomLine("olt_port_optics", total_splitters as i64, "ea",
           OltPortCost(), olt_optics_cost);
   total += olt_optics_cost;
+
+  // Every head-end is a building: hut or hardened cabinet, power, batteries,
+  // HVAC and backhaul. Without this line the reach fix looks free, and the
+  // optimizer would happily open a head-end per serving area.
+  let chassis_cost: i64 = (olt_chassis as i64) * OltChassisCost();
+  BomLine("olt_chassis", olt_chassis as i64, "ea",
+          OltChassisCost(), chassis_cost);
+  total += chassis_cost;
+  let site_cost: i64 = (d.co_count as i64) * HeadEndSiteCost();
+  BomLine("head_end_site", d.co_count as i64, "ea",
+          HeadEndSiteCost(), site_cost);
+  total += site_cost;
 
   // --- cost rollup ---
   let trench_total: i64 = trench_m_soft + trench_m_asphalt;

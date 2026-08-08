@@ -1532,6 +1532,15 @@ fn SelectCo(ref d: Design) {
   d.is_co[best_node] = true;
 
   // Feeder allowance per area = budget - worst (distribution + drop) tail.
+  //
+  // Clamped at zero on purpose. An area whose tail alone already exceeds
+  // MaxRouteM has negative headroom, and no head-end position anywhere can
+  // buy it back — only re-clustering can. Left negative, that area's
+  // violation (dist - slack) stays large even with a head-end on top of it,
+  // so it wins the farthest-first argmax every round and the greedy spends
+  // its whole budget chasing a target it cannot hit while genuinely distant
+  // areas go unserved. Clamped, the argmax is driven by feeder distance,
+  // which is exactly what opening a head-end fixes.
   var slack: array(i32, 512);
   var c2: i32 = 0;
   while (c2 < d.cluster_count) {
@@ -1549,6 +1558,13 @@ fn SelectCo(ref d: Design) {
       }
     }
     ++p;
+  }
+  var c2b: i32 = 0;
+  while (c2b < d.cluster_count) {
+    if (slack[c2b] < 0) {
+      slack[c2b] = 0;
+    }
+    ++c2b;
   }
 
   // Farthest-first until every area fits its allowance.
@@ -1576,14 +1592,15 @@ fn SelectCo(ref d: Design) {
       }
       ++c3;
     }
-    if (worst == -1 or worst_over <= 0 or d.co_count >= d.cluster_count) {
+    if (worst == -1 or worst_over <= 0 or d.co_count >= MaxHeadEnds() or
+        d.co_count >= d.cluster_count) {
       break;
     }
-    // A serving area whose distribution+drop tail alone blows MaxRouteM
-    // cannot be rescued by any head-end position; without this the greedy
-    // re-opens the same site forever. Stop when the worst violation stops
-    // improving, and never open a duplicate.
-    if (d.is_co[d.fdh_node[worst]] or worst_over >= prev_over) {
+    // Defensive: adding a source only ever shrinks distances, so the worst
+    // violation is non-increasing and the chosen area's own violation drops
+    // to <= 0. Both breaks below are unreachable in a correct run; they keep
+    // a pathological input from spinning.
+    if (d.is_co[d.fdh_node[worst]] or worst_over > prev_over) {
       break;
     }
     prev_over = worst_over;
