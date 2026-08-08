@@ -241,6 +241,14 @@ class Design {
 
   // --- CO / OLT ---
   var co_node: i32;
+  // Multiple head-ends. Cape Coral spans 23 km, so a single CO left 120 of
+  // 248 serving areas beyond the 20 km optical budget (worst feeder 54 km).
+  // co_node stays the PRIMARY head-end and the trench tree's root; the rest
+  // are required nodes in that same tree, which is what an inter-CO
+  // transport link is anyway.
+  var co_count: i32;
+  var co_nodes: array(i32, 512);
+  var cluster_co: array(i32, 512);   // head-end serving each serving area
 
   // --- per-edge cable/trench usage (design results) ---
   var dist_fibers: array(i32, 262144);
@@ -415,6 +423,7 @@ fn InitDesign(ref d: Design) {
     d.cluster_count = 0;
     d.term_count = 0;
     d.co_node = -1;
+    d.co_count = 0;
     d.total_units = 0;
     d.heap_size = 0;
     d.assign_cost_seed = 0;

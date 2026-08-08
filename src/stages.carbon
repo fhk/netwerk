@@ -1492,6 +1492,16 @@ fn ProvisionSplitters(ref d: Design) {
 
 // CO site: the FDH node minimizing splitter-weighted graph distance to all
 // FDHs (the CO co-locates with the largest gravity centre of the design).
+// Places the head-ends. The first is the splitter-weighted 1-median over
+// FDH sites — the historical single-CO choice, so any design whose feeders
+// already fit the optical budget is unchanged. Then, while some serving
+// area's feeder would blow its share of MaxRouteM, open another head-end at
+// the worst-served FDH (farthest-first / k-center greedy, which bounds the
+// covering radius) and re-assign every area to its nearest head-end.
+//
+// Each area's feeder allowance is MaxRouteM minus the longest
+// distribution+drop tail it already carries, so the budget QA check and the
+// placement rule are the same arithmetic.
 fn SelectCo(ref d: Design) {
   var best_node: i32 = d.fdh_node[0];
   var best_score: i64 = 9223372036854775807;
@@ -1512,6 +1522,86 @@ fn SelectCo(ref d: Design) {
     ++ci;
   }
   d.co_node = best_node;
+  d.co_nodes[0] = best_node;
+  d.co_count = 1;
+
+  // Feeder allowance per area = budget - worst (distribution + drop) tail.
+  var slack: array(i32, 512);
+  var c2: i32 = 0;
+  while (c2 < d.cluster_count) {
+    slack[c2] = MaxRouteM();
+    ++c2;
+  }
+  var p: i32 = 0;
+  while (p < d.prem_count) {
+    let cc: i32 = d.prem_cluster[p];
+    let tp: i32 = d.prem_terminal[p];
+    if (cc >= 0 and tp >= 0) {
+      let tail: i32 = d.term_path_len[tp] + d.prem_drop_len[p];
+      if (MaxRouteM() - tail < slack[cc]) {
+        slack[cc] = MaxRouteM() - tail;
+      }
+    }
+    ++p;
+  }
+
+  // Farthest-first until every area fits its allowance.
+  var guard: i32 = 0;
+  while (guard < MaxClusters()) {
+    ++guard;
+    DijkstraReset(ref d);
+    var k: i32 = 0;
+    while (k < d.co_count) {
+      AddSource(ref d, d.co_nodes[k]);
+      ++k;
+    }
+    DijkstraRun(ref d, ModeMeters());
+    var worst: i32 = -1;
+    var worst_over: i64 = 0;
+    var c3: i32 = 0;
+    while (c3 < d.cluster_count) {
+      let over: i64 = d.dist[d.fdh_node[c3]] - (slack[c3] as i64);
+      if (over > worst_over or
+          (over == worst_over and worst >= 0 and
+           d.fdh_node[c3] < d.fdh_node[worst])) {
+        worst_over = over;
+        worst = c3;
+      }
+      ++c3;
+    }
+    if (worst == -1 or worst_over <= 0 or d.co_count >= MaxClusters()) {
+      break;
+    }
+    d.co_nodes[d.co_count] = d.fdh_node[worst];
+    ++d.co_count;
+  }
+
+  // Assign every area to its nearest head-end (ties: lowest CO index).
+  var c4: i32 = 0;
+  while (c4 < d.cluster_count) {
+    d.cluster_co[c4] = 0;
+    ++c4;
+  }
+  var best_d: array(i32, 512);
+  var c5: i32 = 0;
+  while (c5 < d.cluster_count) {
+    best_d[c5] = 2147483647;
+    ++c5;
+  }
+  var k2: i32 = 0;
+  while (k2 < d.co_count) {
+    DijkstraFrom(ref d, d.co_nodes[k2], ModeMeters());
+    var c6: i32 = 0;
+    while (c6 < d.cluster_count) {
+      let dd: i64 = d.dist[d.fdh_node[c6]];
+      if (dd < (best_d[c6] as i64)) {
+        best_d[c6] = dd as i32;
+        d.cluster_co[c6] = k2;
+      }
+      ++c6;
+    }
+    ++k2;
+  }
 }
 
 // Feeder: route CO -> each FDH sequentially, nearest FDH first, with the
@@ -1526,15 +1616,20 @@ fn RouteFeeder(ref d: Design) {
     ++c;
   }
 
+  // One nearest-first pass per head-end, so feeder length is measured to
+  // the head-end that actually serves the area.
+  var co: i32 = 0;
+  while (co < d.co_count) {
   var round: i32 = 0;
   while (round < d.cluster_count) {
-    // Nearest unrouted FDH by current shared-cost metric.
-    DijkstraFrom(ref d, d.co_node, ModeFeederCost());
+    // Nearest unrouted FDH of THIS head-end, by shared-cost metric.
+    DijkstraFrom(ref d, d.co_nodes[co], ModeFeederCost());
     var best: i32 = -1;
     var best_cost: i64 = Unreached();
     c = 0;
     while (c < d.cluster_count) {
-      if (not routed[c] and d.dist[d.fdh_node[c]] < best_cost) {
+      if (not routed[c] and d.cluster_co[c] == co and
+          d.dist[d.fdh_node[c]] < best_cost) {
         best_cost = d.dist[d.fdh_node[c]];
         best = c;
       }
@@ -1547,7 +1642,7 @@ fn RouteFeeder(ref d: Design) {
     let fibers: i32 = d.fdh_splitters[best] + 1;
     var v: i32 = d.fdh_node[best];
     var meters: i32 = 0;
-    while (v != d.co_node and d.prev_edge[v] != -1) {
+    while (v != d.co_nodes[co] and d.prev_edge[v] != -1) {
       let e: i32 = d.prev_edge[v];
       d.feeder_fibers[e] += fibers;
       d.trench_used[e] = true;
@@ -1557,6 +1652,8 @@ fn RouteFeeder(ref d: Design) {
     d.fdh_route_len[best] = meters;
     routed[best] = true;
     ++round;
+  }
+    ++co;
   }
 }
 
@@ -2152,8 +2249,12 @@ fn RsMarkRequired(ref d: Design) {
     d.kp_req[d.fdh_node[c]] = true;
     ++c;
   }
-  d.seed_dist[RsFixedBase() + d.co_node] = 1;
-  d.kp_req[d.co_node] = true;
+  var ck2: i32 = 0;
+  while (ck2 < d.co_count) {
+    d.seed_dist[RsFixedBase() + d.co_nodes[ck2]] = 1;
+    d.kp_req[d.co_nodes[ck2]] = true;
+    ++ck2;
+  }
 }
 
 // Roots the trench tree at the CO: parent pointers plus the BFS visit order,
@@ -2663,10 +2764,15 @@ fn DeloopTrench(ref d: Design) {
     }
     ++c1;
   }
-  if (d.node_units[d.co_node] == 0) {
-    d.node_units[d.co_node] = 1;
-    d.kp_req[d.co_node] = true;
-    ++remaining;
+  var ck: i32 = 0;
+  while (ck < d.co_count) {
+    let cn: i32 = d.co_nodes[ck];
+    if (d.node_units[cn] == 0) {
+      d.node_units[cn] = 1;
+      d.kp_req[cn] = true;
+      ++remaining;
+    }
+    ++ck;
   }
   DijkstraReset(ref d);
   d.in_tree[d.co_node] = true;

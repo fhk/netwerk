@@ -1,6 +1,6 @@
 design:
   premises=6719 units=6719 serving_areas=16 terminals=1434
-  co_node=4472 olt_chassis=1 olt_cards=12 pon_ports_used=172
+  co_node=4472 head_ends=1 olt_chassis=1 olt_cards=12 pon_ports_used=172
   area 0: fdh_node=776 premises=432 units=432 cabinet=432 splitters=11 feeder_m=4358
   area 1: fdh_node=15443 premises=239 units=239 cabinet=288 splitters=7 feeder_m=7519
   area 2: fdh_node=4472 premises=432 units=432 cabinet=432 splitters=11 feeder_m=0

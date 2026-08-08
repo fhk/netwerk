@@ -313,7 +313,8 @@ fn RunQa(ref d: Design) -> i32 {
   var unrouted: i32 = 0;
   c = 0;
   while (c < d.cluster_count) {
-    if (d.fdh_node[c] != d.co_node and d.fdh_route_len[c] == 0) {
+    if (d.fdh_node[c] != d.co_nodes[d.cluster_co[c]] and
+        d.fdh_route_len[c] == 0) {
       ++unrouted;
     }
     ++c;
@@ -438,6 +439,8 @@ fn Report(ref d: Design) -> i64 {
   NL();
   Core.PrintStr("  co_node=");
   PrintInt(d.co_node);
+  Core.PrintStr(" head_ends=");
+  PrintInt(d.co_count);
   Core.PrintStr(" olt_chassis=");
   PrintInt(olt_chassis);
   Core.PrintStr(" olt_cards=");
