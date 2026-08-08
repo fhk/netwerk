@@ -133,6 +133,10 @@ def main():
                     help="max canal width to cross (metres)")
     ap.add_argument("--max-drop", type=float, default=150.0,
                     help="engine max drop length (metres)")
+    ap.add_argument("--land-link", type=float, default=200.0,
+                    help="join banks of DIFFERENT canals within this many "
+                         "metres — the streets on the land between them")
+    ap.add_argument("--max-land-links", type=int, default=60000)
     ap.add_argument("--max-nodes", type=int, default=98304)
     ap.add_argument("--max-edges", type=int, default=262144)
     ap.add_argument("--max-premises", type=int, default=196608)
@@ -161,6 +165,7 @@ def main():
     # ---- nodes: dedupe on integer metres ---------------------------------
     node_key = {}
     node_xy = []
+    ring_of = []
 
     def node_id(x, y):
         k = (int(round(x)), int(round(y)))
@@ -169,8 +174,10 @@ def main():
             i = len(node_xy)
             node_key[k] = i
             node_xy.append(k)
+            ring_of.append(cur_ring[0])
         return i
 
+    cur_ring = [-1]     # ring index currently being emitted
     edges = {}          # (a,b) a<b -> surface (0 keeps priority over 1)
 
     def add_edge(a, b, surface):
@@ -198,6 +205,7 @@ def main():
             samples, arc, total = resample_ring(pts, spacing)
             if len(samples) < 2:
                 continue
+            cur_ring[0] = n_rings
             n_rings += 1
             ids = [node_id(x, y) for (x, y) in samples]
             m = len(ids)
@@ -324,6 +332,39 @@ def main():
         bridge_lens.append(d)
     log("bridges added: %d  (max %.0f m)  passes=%d"
         % (bridges, max(bridge_lens) if bridge_lens else 0, passes))
+
+    # Extra land bridges. The spanning set above makes the network
+    # connected but nearly a TREE OF CANALS: with no shortcuts, a route
+    # between two adjacent canals can detour kilometres, which showed up as
+    # a 73.9 km distribution tail in the first city design. The dry land
+    # between canals carries streets, so any two banks within
+    # --land-link metres of each other are genuinely joinable.
+    extra = 0
+    if args.land_link > 0:
+        LCELL = args.land_link
+        lg = {}
+        for i, (x, y) in enumerate(node_xy):
+            lg.setdefault((int(x // LCELL), int(y // LCELL)), []).append(i)
+        cand = []
+        for i, (x, y) in enumerate(node_xy):
+            for j in grid_near(lg, LCELL, x, y, args.land_link):
+                if j <= i:
+                    continue
+                if ring_of[i] == ring_of[j]:
+                    continue          # same canal: that is a crossing, not land
+                dd = math.dist(node_xy[i], node_xy[j])
+                if dd <= args.land_link:
+                    cand.append((int(round(dd)), i, j))
+        cand.sort()
+        for dd, i, j in cand:
+            if extra >= args.max_land_links:
+                break
+            if len(edges) >= args.max_edges:
+                break
+            if add_edge(i, j, 0):
+                extra += 1
+        log("extra land links: %d (of %d candidates within %.0f m)"
+            % (extra, len(cand), args.land_link))
 
     # ---- 6: premises ------------------------------------------------------
     addrs = json.load(open(args.addresses))
